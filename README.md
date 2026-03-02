@@ -6,6 +6,8 @@ A self-hosted server that enables **real-time, bidirectional** web-based interac
 
 ![Remote Control Server Screenshot](./eihei.jpg)
 
+> **Important:** If you're on an official Claude subscription, the built-in Remote Control already works out of the box. But if you're using the API directly, or running **Deepseek / GLM / Kimi / Minimax on Claude Code**, this project will be a game-changer.
+
 ## Why Remote Control?
 
 Claude Code stores conversation history as local JSONL files (`~/.claude/projects/.../`). Reading these files only gives you a static, after-the-fact view of what happened.

@@ -6,6 +6,8 @@
 
 ![Remote Control Server 效果图](./eihei.jpg)
 
+> **重要提示：** 如果你用的是 Claude 官方订阅，那么官方的 Remote Control 就已经可以用了。但如果你用的是 API，或者是 Deepseek/GLM/Kimi/Minimax on Claude Code 用户，这个项目将会有巨大作用。
+
 ## 为什么需要 Remote Control？
 
 Claude Code 将对话历史存储为本地 JSONL 文件（`~/.claude/projects/.../`）。读取这些文件只能得到一个静态的、事后的视图。
