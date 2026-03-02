@@ -8,6 +8,8 @@ const state = {
   cliConnected: false,
   // Store pending AskUserQuestion data keyed by requestId for permission submission
   pendingAskQuestions: {},
+  // Track seen message uuids to prevent duplicate rendering
+  seenUuids: new Set(),
 };
 
 // ─── DOM Refs ────────────────────────────────────────────
@@ -123,6 +125,7 @@ function handleWsMessage(data) {
   if (data.type === "history") {
     const messages = $("#messages");
     messages.innerHTML = "";
+    state.seenUuids.clear();
     for (const event of data.events) {
       appendMessage(event);
     }
@@ -152,6 +155,12 @@ function appendMessage(event) {
   const messages = $("#messages");
   if (!messages) return;
 
+  // Deduplicate by uuid to prevent showing the same message multiple times
+  if (event.uuid) {
+    if (state.seenUuids.has(event.uuid)) return;
+    state.seenUuids.add(event.uuid);
+  }
+
   // Remove streaming indicator if present
   const indicator = messages.querySelector(".stream-indicator");
   if (indicator && event.type !== "stream_event") {
@@ -162,12 +171,24 @@ function appendMessage(event) {
 
   switch (event.type) {
     case "user":
-      div.className = "message user";
-      div.innerHTML = `
-        <div class="message-label">You</div>
-        <div class="message-content">${escapeHtml(extractText(event))}</div>
-        <div class="message-time">${formatTime(event.timestamp)}</div>
-      `;
+      const userText = extractText(event);
+      if (userText) {
+        div.className = "message user";
+        div.innerHTML = `
+          <div class="message-label">You</div>
+          <div class="message-content">${escapeHtml(userText)}</div>
+          <div class="message-time">${formatTime(event.timestamp)}</div>
+        `;
+      } else {
+        const toolResultText = extractToolResultText(event);
+        if (!toolResultText) return;
+        div.className = "message user";
+        div.innerHTML = `
+          <div class="message-label">You</div>
+          <div class="message-content" style="color: var(--text-secondary); font-style: italic;">${escapeHtml(toolResultText)}</div>
+          <div class="message-time">${formatTime(event.timestamp)}</div>
+        `;
+      }
       break;
 
     case "assistant":
@@ -199,10 +220,11 @@ function appendMessage(event) {
       break;
 
     case "result":
-      div.className = `message result ${event.is_error ? "error" : ""}`;
+      if (!event.is_error) return; // successful turn completion, don't render
+      div.className = "message result error";
       div.innerHTML = `
-        <div class="message-label">Result</div>
-        <div class="message-content">${escapeHtml(event.result || "Session completed")}</div>
+        <div class="message-label">Error</div>
+        <div class="message-content">${escapeHtml(event.result || event.subtype || "Error")}</div>
         <div class="message-time">${formatTime(event.timestamp)}</div>
       `;
       break;
@@ -260,8 +282,8 @@ function renderAssistantContent(event) {
     if (block.type === "text") {
       html += escapeHtml(block.text);
     } else if (block.type === "tool_use" && block.name === "AskUserQuestion") {
-      // Read-only display in assistant message — interactive form comes via control_request
-      html += renderAskUserQuestionReadonly(block);
+      // Skip — interactive form is rendered from the control_request event
+      continue;
     } else if (block.type === "tool_use") {
       html += `<div class="tool-call">
         <div class="tool-call-name">${escapeHtml(block.name || "tool")}</div>
@@ -786,6 +808,18 @@ function escapeHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function extractToolResultText(event) {
+  if (!event.message) return "";
+  const content = event.message.content;
+  if (!Array.isArray(content)) return "";
+  const results = content.filter((b) => b.type === "tool_result");
+  if (results.length === 0) return "";
+  return results
+    .map((b) => (typeof b.content === "string" ? b.content : ""))
+    .filter(Boolean)
+    .join("\n");
 }
 
 function extractText(event) {
