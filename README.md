@@ -67,26 +67,42 @@ Environment variables:
 
 ## Patching Claude Code to Use a Self-Hosted Server
 
-Claude Code's bridge mode has two `BASE_API_URL` configs: the **prod** config points to `https://api.anthropic.com`, and the **local/dev** config points to `http://localhost:3000`. To point it at your self-hosted server, you need to patch `cli.js`.
+Claude Code's bridge mode has two `BASE_API_URL` configs: the **prod** config points to `https://api.anthropic.com`, and the **local/dev** config points to `http://localhost:3000`. To point it at your self-hosted server, you need to patch the CLI binary.
 
-> **Note:** The function names and line numbers in `cli.js` change with every release (it is minified/obfuscated). The instructions below use **stable string constants** that survive across versions, so they work regardless of CLI version.
+> **Note:** The CLI binary is minified/obfuscated — function names and line numbers change every release. All instructions below use **version-independent patterns** (stable string constants + regex with `[[:space:]]*` for optional whitespace) that work across CLI versions regardless of minification style.
+
+> **Platform note:** `sed -i` syntax differs: Linux (GNU sed) uses `sed -i`, macOS (BSD sed) uses `sed -i ''`. The [one-click script](#one-click-patch-script) at the end handles this automatically.
+
+### Auto-Detecting the CLI Path
+
+The CLI path changes with Node.js version. Auto-detect instead of hardcoding:
+
+```bash
+CLI_JS="$(readlink -f "$(which claude)" 2>/dev/null)" \
+    || CLI_JS="$(realpath "$(which claude)" 2>/dev/null)" \
+    || CLI_JS="$(which claude)"
+echo "CLI: $CLI_JS"
+```
 
 ### Locating the Relevant Code
 
-Use `grep` to find the code you need to patch. These strings are stable across CLI versions:
+Use `grep` to find the code you need to patch. These patterns are version-independent:
 
 ```bash
 # 1. Find the hardcoded BASE_API_URL (prod config)
-grep -n 'BASE_API_URL: "https://api.anthropic.com"' cli.js
+grep -n 'BASE_API_URL.*api\.anthropic\.com' "$CLI_JS"
 
 # 2. Find the OAuth URL allowlist
-grep -n 'beacon.claude-ai.staging.ant.dev' cli.js
+grep -n 'beacon.claude-ai.staging.ant.dev' "$CLI_JS"
 
 # 3. Find the HTTP enforcement check (2.1.63+)
-grep -n 'Remote Control base URL uses HTTP' cli.js
+grep -n 'Remote Control base URL uses HTTP' "$CLI_JS"
 
 # 4. Find the WebSocket URL derivation (v1 vs v2 routing, 2.1.63+)
-grep -n 'session_ingress/ws/' cli.js
+grep -n 'session_ingress/ws/' "$CLI_JS"
+
+# 5. Find the tengu_ccr_bridge feature flag
+grep -n 'tengu_ccr_bridge' "$CLI_JS"
 ```
 
 ### Patch Method
@@ -97,7 +113,8 @@ Replace `https://api.anthropic.com` in the prod config with your server's URL:
 
 ```bash
 # Example: point to a remote server at 192.168.1.100:3000
-sed -i '' 's|BASE_API_URL: "https://api.anthropic.com"|BASE_API_URL: "http://192.168.1.100:3000"|' cli.js
+# [[:space:]]* handles both minified (no space) and pretty-printed (with space) JS
+sed -E -i 's|BASE_API_URL:[[:space:]]*"https://api\.anthropic\.com"|BASE_API_URL:"http://192.168.1.100:3000"|' "$CLI_JS"
 ```
 
 **Option B: Bypass the allowlist for `CLAUDE_CODE_CUSTOM_OAUTH_URL`**
@@ -106,10 +123,10 @@ The CLI supports `CLAUDE_CODE_CUSTOM_OAUTH_URL` but validates it against a hardc
 
 ```bash
 # Find the allowlist array (contains "beacon.claude-ai.staging.ant.dev")
-grep -n 'beacon.claude-ai.staging.ant.dev' cli.js
+grep -n 'beacon.claude-ai.staging.ant.dev' "$CLI_JS"
 
 # Add your server URL to the allowlist array, then set the env var:
-sed -i '' 's|"https://beacon.claude-ai.staging.ant.dev"|"https://beacon.claude-ai.staging.ant.dev","https://your-server.example.com"|' cli.js
+sed -i 's|"https://beacon.claude-ai.staging.ant.dev"|"https://beacon.claude-ai.staging.ant.dev","https://your-server.example.com"|' "$CLI_JS"
 export CLAUDE_CODE_CUSTOM_OAUTH_URL=https://your-server.example.com
 ```
 
@@ -120,20 +137,19 @@ export CLAUDE_CODE_CUSTOM_OAUTH_URL=https://your-server.example.com
    - Patch out the HTTP check:
 
    ```bash
-   # Neutralize the HTTP enforcement check
-   sed -i '' 's/v.startsWith("http:\/\/") && !v.includes("localhost") && !v.includes("127.0.0.1")/false/' cli.js
+   # Version-independent: matches any variable name and handles optional whitespace
+   sed -E -i 's/[a-zA-Z_$]+\.startsWith\("http:\/\/"\)[[:space:]]*&&[[:space:]]*![a-zA-Z_$]+\.includes\("localhost"\)[[:space:]]*&&[[:space:]]*![a-zA-Z_$]+\.includes\("127\.0\.0\.1"\)/false/' "$CLI_JS"
    ```
 
-2. **WebSocket URL derivation** (2.1.63+): The function containing `session_ingress/ws/` automatically derives the WebSocket URL from `api_base_url`:
+2. **WebSocket URL derivation** (2.1.63+): The CLI automatically derives the WebSocket URL from `api_base_url`:
    - For `localhost` / `127.0.0.1`: uses `ws://` and `/v2/` prefix
    - For all other hosts: uses `wss://` and `/v1/` prefix
 
-   If your self-hosted server only supports `/v2/` routes (like this project does), and is not on localhost, patch it to always use `v2`:
+   If your self-hosted server only supports `/v2/` routes (like this project does), and is not on localhost, force both branches to return `v2`:
 
    ```bash
-   # Force v2 routing for all hosts
-   # The pattern: K ? "v2" : "v1" → always "v2"
-   sed -i '' 's/z = K ? "v2" : "v1"/z = "v2"/' cli.js
+   # Version-independent: matches the ?"v2":"v1" ternary regardless of variable names
+   sed -E -i 's/\?[[:space:]]*"v2"[[:space:]]*:[[:space:]]*"v1"/?"v2":"v2"/' "$CLI_JS"
    ```
 
 3. **Work secret `api_base_url`**: The server embeds its own URL in the work secret. If your server is accessible at a different address than `localhost:${PORT}` (e.g., behind a reverse proxy), set the `API_BASE_URL` env var:
@@ -147,19 +163,19 @@ export CLAUDE_CODE_CUSTOM_OAUTH_URL=https://your-server.example.com
 
    ```bash
    # Patch 1: Bypass feature flag entirely (makes command visible + sync check always passes)
-   # Replaces the jA() call with literal true, bypassing GrowthBook cache
-   sed -i '' 's/jA("tengu_ccr_bridge", !1)/!0/' cli.js
+   # Version-independent regex: matches any function name calling tengu_ccr_bridge
+   sed -E -i 's/[A-Za-z0-9_]+\("tengu_ccr_bridge",[[:space:]]*!1\)/!0/g' "$CLI_JS"
 
    # Patch 2a: Neutralize async flag check (CLI command path)
-   sed -i '' 's/console.error("Error: Remote Control is not yet enabled for your account."), process.exit(1)/void 0/' cli.js
+   sed -i 's/console.error("Error: Remote Control is not yet enabled for your account."), process.exit(1)/void 0/' "$CLI_JS"
 
    # Patch 2b: Neutralize async flag check (interactive mode path)
-   sed -i '' 's/return "Remote Control is not enabled. Wait for the feature flag rollout."/return null/' cli.js
+   sed -i 's/return "Remote Control is not enabled. Wait for the feature flag rollout."/return null/' "$CLI_JS"
 
    # Patch 3: Neutralize async flag check in bridge init (REPL path)
-   # This makes tl6() always return true, covering initReplBridge()'s own async flag gate
-   # Note: This makes Patch 2a/2b redundant, but they are kept as defense-in-depth
-   sed -E -i '' 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' cli.js
+   # Version-independent regex: matches any function name calling tengu_ccr_bridge
+   # Note: On 2.1.68+ the async check is already hardcoded to return true, making this a no-op
+   sed -E -i 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' "$CLI_JS"
    ```
 
    Additionally, the command requires OAuth credentials. If you don't have a claude.ai account (e.g., API-only or third-party model users), set this env var to bypass all OAuth checks:
@@ -173,43 +189,63 @@ export CLAUDE_CODE_CUSTOM_OAUTH_URL=https://your-server.example.com
 
 ### One-Click Patch Script
 
-Replace `YOUR_SERVER_URL` with your server address (e.g., `http://192.168.1.100:3000`):
+Save as `patch-claude.sh` and run: `./patch-claude.sh <server-url>`
 
 ```bash
 #!/bin/bash
 set -e
 
-CLI_JS="cli.js"
 SERVER_URL="${1:?Usage: $0 <server-url>}"  # e.g. http://192.168.1.100:3000
 
-# Verify the file exists
-[ -f "$CLI_JS" ] || { echo "Error: $CLI_JS not found"; exit 1; }
+# ---- Auto-detect Claude CLI path (version-independent) ----
+if [ -n "$CLI_JS" ]; then
+    : # User-specified via CLI_JS env var
+elif command -v claude >/dev/null 2>&1; then
+    CLI_JS="$(readlink -f "$(command -v claude)" 2>/dev/null)" \
+        || CLI_JS="$(realpath "$(command -v claude)" 2>/dev/null)" \
+        || CLI_JS="$(command -v claude)"
+else
+    echo "Error: 'claude' not found in PATH"
+    echo "Set CLI_JS manually: CLI_JS=/path/to/claude $0 $*"
+    exit 1
+fi
+echo "CLI: $CLI_JS"
+
+# ---- Cross-platform sed -i (GNU vs BSD) ----
+if sed --version 2>/dev/null | grep -q 'GNU'; then
+    sedi() { sed -i "$@"; }
+else
+    sedi() { sed -i '' "$@"; }
+fi
 
 # Backup
 cp "$CLI_JS" "$CLI_JS.bak"
 
 # 1. Patch prod BASE_API_URL
-sed -i '' "s|BASE_API_URL: \"https://api.anthropic.com\"|BASE_API_URL: \"${SERVER_URL}\"|" "$CLI_JS"
+#    [[:space:]]* handles both minified (no space) and pretty-printed (with space) JS
+sedi -E "s|BASE_API_URL:[[:space:]]*\"https://api\.anthropic\.com\"|BASE_API_URL:\"${SERVER_URL}\"|" "$CLI_JS"
 
-# 2. Force v2 WebSocket routing (2.1.63+, no-op on older versions)
-sed -i '' 's/z = K ? "v2" : "v1"/z = "v2"/' "$CLI_JS"
+# 2. Force v2 WebSocket routing (both ternary branches → "v2")
+#    Matches ?"v2":"v1" regardless of surrounding variable names or whitespace
+sedi -E 's/\?[[:space:]]*"v2"[[:space:]]*:[[:space:]]*"v1"/?"v2":"v2"/' "$CLI_JS"
 
-# 3. Neutralize HTTP enforcement (2.1.63+, only needed if SERVER_URL uses http:// on non-localhost)
+# 3. Neutralize HTTP enforcement (only needed for http:// on non-localhost)
 if echo "$SERVER_URL" | grep -q '^http://' && ! echo "$SERVER_URL" | grep -qE '(localhost|127\.0\.0\.1)'; then
-    sed -i '' 's/v.startsWith("http:\/\/") \&\& !v.includes("localhost") \&\& !v.includes("127.0.0.1")/false/' "$CLI_JS"
+    sedi -E 's/[a-zA-Z_$]+\.startsWith\("http:\/\/"\)[[:space:]]*&&[[:space:]]*![a-zA-Z_$]+\.includes\("localhost"\)[[:space:]]*&&[[:space:]]*![a-zA-Z_$]+\.includes\("127\.0\.0\.1"\)/false/' "$CLI_JS"
 fi
 
-# 4. Unlock /remote-control command: bypass feature flag entirely (2.1.63+, no-op on older versions)
-sed -i '' 's/jA("tengu_ccr_bridge", !1)/!0/' "$CLI_JS"
+# 4. Bypass tengu_ccr_bridge feature flag (sync check)
+sedi -E 's/[A-Za-z0-9_]+\("tengu_ccr_bridge",[[:space:]]*!1\)/!0/g' "$CLI_JS"
 
-# 5. Neutralize async feature flag runtime checks (2.1.63+, no-op on older versions)
-sed -i '' 's/console.error("Error: Remote Control is not yet enabled for your account."), process.exit(1)/void 0/' "$CLI_JS"
-sed -i '' 's/return "Remote Control is not enabled. Wait for the feature flag rollout."/return null/' "$CLI_JS"
+# 5. Neutralize async feature flag runtime checks
+sedi 's/console.error("Error: Remote Control is not yet enabled for your account."), process.exit(1)/void 0/' "$CLI_JS"
+sedi 's/return "Remote Control is not enabled. Wait for the feature flag rollout."/return null/' "$CLI_JS"
 
-# 6. Neutralize async flag check in bridge init (REPL path, 2.1.63+, no-op on older versions)
-sed -E -i '' 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' "$CLI_JS"
+# 6. Bypass tengu_ccr_bridge async check in bridge init (no-op on 2.1.68+)
+sedi -E 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' "$CLI_JS"
 
-echo "Patched $CLI_JS to use $SERVER_URL (backup: $CLI_JS.bak)"
+echo ""
+echo "Patched $CLI_JS -> $SERVER_URL (backup: $CLI_JS.bak)"
 echo ""
 echo "If you don't have a claude.ai account, also set:"
 echo "  export CLAUDE_CODE_OAUTH_TOKEN=self-hosted"
