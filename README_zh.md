@@ -143,6 +143,34 @@ export CLAUDE_CODE_CUSTOM_OAUTH_URL=https://your-server.example.com
    export API_BASE_URL=http://your-external-address:3000
    ```
 
+4. **解锁 `/remote-control` 命令**（2.1.63+）：`remote-control`（即 `claude remote-control`）命令被 `tengu_ccr_bridge` feature flag 保护。即使已修补 `BASE_API_URL`，该命令仍然隐藏且被阻止。需要 **3 处代码修补 + 1 个环境变量**：
+
+   ```bash
+   # 修补 1：完全绕过 feature flag（使命令可见 + sync 检查始终通过）
+   # 将 jA() 调用替换为字面量 true，绕过 GrowthBook 缓存和登录状态
+   sed -i '' 's/jA("tengu_ccr_bridge", !1)/!0/' cli.js
+
+   # 修补 2a：中和 async flag 检查（CLI 命令路径）
+   sed -i '' 's/console.error("Error: Remote Control is not yet enabled for your account."), process.exit(1)/void 0/' cli.js
+
+   # 修补 2b：中和 async flag 检查（交互模式路径）
+   sed -i '' 's/return "Remote Control is not enabled. Wait for the feature flag rollout."/return null/' cli.js
+
+   # 修补 3：中和 bridge 初始化中的 async flag 检查（REPL 路径）
+   # 使 tl6() 始终返回 true，覆盖 initReplBridge() 自身的 async flag 门控
+   # 注意：这使修补 2a/2b 变为冗余，但保留它们作为纵深防御
+   sed -E -i '' 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' cli.js
+   ```
+
+   此外，该命令需要 OAuth 凭据。如果你没有 claude.ai 账号（例如纯 API 用户或第三方模型用户），设置以下环境变量可绕过所有 OAuth 检查：
+
+   ```bash
+   # 自建服务器不验证 Authorization header，任意值即可
+   export CLAUDE_CODE_OAUTH_TOKEN=self-hosted
+   ```
+
+   > **注意：** 如果你已有 claude.ai 账号且已登录，只需上面的修补 1-2。`CLAUDE_CODE_OAUTH_TOKEN` 环境变量仅适用于没有 claude.ai 账号的用户。
+
 ### 一键修补脚本
 
 将 `YOUR_SERVER_URL` 替换为你的服务器地址（如 `http://192.168.1.100:3000`）：
@@ -171,7 +199,20 @@ if echo "$SERVER_URL" | grep -q '^http://' && ! echo "$SERVER_URL" | grep -qE '(
     sed -i '' 's/v.startsWith("http:\/\/") \&\& !v.includes("localhost") \&\& !v.includes("127.0.0.1")/false/' "$CLI_JS"
 fi
 
+# 4. 解锁 /remote-control 命令：完全绕过 feature flag（2.1.63+，旧版本无影响）
+sed -i '' 's/jA("tengu_ccr_bridge", !1)/!0/' "$CLI_JS"
+
+# 5. 中和 async feature flag 运行时检查（2.1.63+，旧版本无影响）
+sed -i '' 's/console.error("Error: Remote Control is not yet enabled for your account."), process.exit(1)/void 0/' "$CLI_JS"
+sed -i '' 's/return "Remote Control is not enabled. Wait for the feature flag rollout."/return null/' "$CLI_JS"
+
+# 6. 中和 bridge 初始化中的 async flag 检查（REPL 路径，2.1.63+，旧版本无影响）
+sed -E -i '' 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' "$CLI_JS"
+
 echo "已修补 $CLI_JS，目标服务器: $SERVER_URL（备份: $CLI_JS.bak）"
+echo ""
+echo "如果你没有 claude.ai 账号，还需设置："
+echo "  export CLAUDE_CODE_OAUTH_TOKEN=self-hosted"
 ```
 
 ## API 端点

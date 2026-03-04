@@ -17,6 +17,18 @@ export function createWebApiRoutes(
 ): Router {
   const router = Router();
 
+  // GET /api/oauth/profile — Stub for CLI's profile check
+  // ny() calls ps() which hits this endpoint to get organizationUuid
+  router.get("/api/oauth/profile", (_req, res) => {
+    res.json({
+      account_uuid: "self-hosted",
+      email: "self-hosted@localhost",
+      organization: {
+        uuid: "self-hosted-org",
+      },
+    });
+  });
+
   // GET /api/environments — List all registered environments
   router.get("/api/environments", (_req, res) => {
     const envs = envManager.getAll();

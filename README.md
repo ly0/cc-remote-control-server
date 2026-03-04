@@ -143,6 +143,34 @@ export CLAUDE_CODE_CUSTOM_OAUTH_URL=https://your-server.example.com
    export API_BASE_URL=http://your-external-address:3000
    ```
 
+4. **Unlocking the `/remote-control` command** (2.1.63+): The `remote-control` (aka `claude remote-control`) command is gated behind the `tengu_ccr_bridge` feature flag. Even after patching `BASE_API_URL`, the command remains hidden and blocked. You need **3 code patches + 1 env var**:
+
+   ```bash
+   # Patch 1: Bypass feature flag entirely (makes command visible + sync check always passes)
+   # Replaces the jA() call with literal true, bypassing GrowthBook cache
+   sed -i '' 's/jA("tengu_ccr_bridge", !1)/!0/' cli.js
+
+   # Patch 2a: Neutralize async flag check (CLI command path)
+   sed -i '' 's/console.error("Error: Remote Control is not yet enabled for your account."), process.exit(1)/void 0/' cli.js
+
+   # Patch 2b: Neutralize async flag check (interactive mode path)
+   sed -i '' 's/return "Remote Control is not enabled. Wait for the feature flag rollout."/return null/' cli.js
+
+   # Patch 3: Neutralize async flag check in bridge init (REPL path)
+   # This makes tl6() always return true, covering initReplBridge()'s own async flag gate
+   # Note: This makes Patch 2a/2b redundant, but they are kept as defense-in-depth
+   sed -E -i '' 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' cli.js
+   ```
+
+   Additionally, the command requires OAuth credentials. If you don't have a claude.ai account (e.g., API-only or third-party model users), set this env var to bypass all OAuth checks:
+
+   ```bash
+   # The self-hosted server doesn't validate the Authorization header, so any value works
+   export CLAUDE_CODE_OAUTH_TOKEN=self-hosted
+   ```
+
+   > **Note:** If you already have a claude.ai account and are logged in, you only need Patch 1-2 above. The `CLAUDE_CODE_OAUTH_TOKEN` env var is only needed for users without a claude.ai account.
+
 ### One-Click Patch Script
 
 Replace `YOUR_SERVER_URL` with your server address (e.g., `http://192.168.1.100:3000`):
@@ -171,7 +199,20 @@ if echo "$SERVER_URL" | grep -q '^http://' && ! echo "$SERVER_URL" | grep -qE '(
     sed -i '' 's/v.startsWith("http:\/\/") \&\& !v.includes("localhost") \&\& !v.includes("127.0.0.1")/false/' "$CLI_JS"
 fi
 
+# 4. Unlock /remote-control command: bypass feature flag entirely (2.1.63+, no-op on older versions)
+sed -i '' 's/jA("tengu_ccr_bridge", !1)/!0/' "$CLI_JS"
+
+# 5. Neutralize async feature flag runtime checks (2.1.63+, no-op on older versions)
+sed -i '' 's/console.error("Error: Remote Control is not yet enabled for your account."), process.exit(1)/void 0/' "$CLI_JS"
+sed -i '' 's/return "Remote Control is not enabled. Wait for the feature flag rollout."/return null/' "$CLI_JS"
+
+# 6. Neutralize async flag check in bridge init (REPL path, 2.1.63+, no-op on older versions)
+sed -E -i '' 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' "$CLI_JS"
+
 echo "Patched $CLI_JS to use $SERVER_URL (backup: $CLI_JS.bak)"
+echo ""
+echo "If you don't have a claude.ai account, also set:"
+echo "  export CLAUDE_CODE_OAUTH_TOKEN=self-hosted"
 ```
 
 ## API Endpoints
