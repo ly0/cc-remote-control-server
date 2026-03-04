@@ -105,6 +105,42 @@ export function createWebApiRoutes(
       return;
     }
 
+    // Claude Code remote-control bridge runs one active CLI session per environment.
+    // If a CLI-connected active session already exists, reuse it instead of creating
+    // a foreign session that the bridge will reject.
+    const activeSessionsForEnv = sessionManager
+      .getByEnvironment(environment_id)
+      .filter((s) => s.status === "active");
+    const connectedSession = activeSessionsForEnv.find((s) =>
+      connectionManager.hasCliConnection(s.id)
+    );
+    if (connectedSession) {
+      if (prompt) {
+        const userMessage = {
+          type: "user" as const,
+          message: {
+            role: "user" as const,
+            content: [{ type: "text", text: prompt }],
+          },
+          session_id: connectedSession.id,
+          uuid: uuidv4(),
+          timestamp: Date.now(),
+        };
+        sessionManager.addMessage(connectedSession.id, userMessage);
+        connectionManager.sendRawToCliSession(connectedSession.id, userMessage);
+        connectionManager.sendEventToWebClients(connectedSession.id, userMessage);
+      }
+      logger.info(
+        TAG,
+        `POST /api/sessions -> reused active CLI session ${connectedSession.id} for env ${environment_id}`
+      );
+      res.json({
+        id: connectedSession.id,
+        reused: true,
+      });
+      return;
+    }
+
     // Create the session
     const session = sessionManager.create({
       title: title || "Remote Session",
@@ -131,7 +167,10 @@ export function createWebApiRoutes(
     if (prompt) {
       const userMessage = {
         type: "user",
-        message: { content: [{ type: "text", text: prompt }] },
+        message: {
+          role: "user" as const,
+          content: [{ type: "text", text: prompt }],
+        },
         session_id: session.id,
         uuid: uuidv4(),
         timestamp: Date.now(),
@@ -165,7 +204,10 @@ export function createWebApiRoutes(
 
     const userEvent = {
       type: "user" as const,
-      message: { content: [{ type: "text", text: message }] },
+      message: {
+        role: "user" as const,
+        content: [{ type: "text", text: message }],
+      },
       session_id: sessionId,
       uuid: uuidv4(),
       parent_tool_use_id,

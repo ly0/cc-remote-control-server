@@ -61,8 +61,10 @@ function handleCliWebSocket(sessionId: string, ws: WebSocket) {
       (m) => m.type === "user"
     );
     for (const msg of pendingUserMessages) {
-      ws.send(JSON.stringify(msg) + "\n");
-      logger.info(TAG, `Sent pending user message to CLI for session ${sessionId}`);
+      const sent = ctx.connectionManager.sendRawToCliSession(sessionId, msg);
+      if (sent) {
+        logger.info(TAG, `Sent pending user message to CLI for session ${sessionId}`);
+      }
     }
   }
 
@@ -132,6 +134,7 @@ function handleWebWebSocket(sessionId: string, ws: WebSocket) {
         const userEvent = {
           type: "user" as const,
           message: {
+            role: "user" as const,
             content: [{ type: "text", text: parsed.message }],
           },
           session_id: sessionId,

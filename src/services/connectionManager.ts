@@ -17,6 +17,34 @@ export class ConnectionManager {
 
   // ─── CLI connections ───────────────────────────────────
 
+  /**
+   * Normalize payloads before forwarding to CLI processLine().
+   *
+   * Claude/Ripperdoc stream-json parser requires:
+   *   type: "user"
+   *   message.role === "user"
+   */
+  private normalizeCliPayload(payload: any): any {
+    if (!payload || typeof payload !== "object") {
+      return payload;
+    }
+    if (payload.type !== "user") {
+      return payload;
+    }
+
+    const message =
+      payload.message && typeof payload.message === "object"
+        ? payload.message
+        : {};
+
+    const normalizedMessage = { ...message, role: "user" };
+
+    return {
+      ...payload,
+      message: normalizedMessage,
+    };
+  }
+
   registerCliConnection(sessionId: string, ws: WebSocket): void {
     // Close existing connection if any
     const existing = this.cliConnections.get(sessionId);
@@ -45,7 +73,7 @@ export class ConnectionManager {
   sendToCliSession(sessionId: string, message: any): boolean {
     const ws = this.cliConnections.get(sessionId);
     if (ws && ws.readyState === WebSocket.OPEN) {
-      const payload = JSON.stringify(message);
+      const payload = JSON.stringify(this.normalizeCliPayload(message));
       ws.send(payload);
       logger.debug(TAG, `Sent to CLI session ${sessionId}: ${message.type || "unknown"}`);
       return true;
@@ -62,7 +90,8 @@ export class ConnectionManager {
   sendRawToCliSession(sessionId: string, payload: any): boolean {
     const ws = this.cliConnections.get(sessionId);
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(payload) + "\n");
+      const normalized = this.normalizeCliPayload(payload);
+      ws.send(JSON.stringify(normalized) + "\n");
       logger.debug(TAG, `Sent raw to CLI session ${sessionId}: ${payload.type || "unknown"}`);
       return true;
     }
