@@ -12,13 +12,14 @@ import { Computer, Send, CircleStop } from 'lucide-react';
 import { buildCrossMessageToolResultMap } from '@/components/message/useToolResultMap';
 import { useTaskState } from '@/hooks/useTaskState';
 import { useGroupedMessages } from '@/hooks/useGroupedMessages';
+import { useSessionRouter } from '@/hooks/useSessionRouter';
 import { TaskPanel } from '@/components/TaskPanel';
 
 function App() {
   // State
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const { sessionId: currentSessionId, navigateToSession } = useSessionRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [cliConnected, setCliConnected] = useState(false);
   const [inputText, setInputText] = useState('');
@@ -152,13 +153,21 @@ function App() {
     }
   }, []);
 
-  // Select session
+  // Select session (effect above handles WebSocket connection)
   const handleSelectSession = useCallback((sessionId: string) => {
-    setCurrentSessionId(sessionId);
-    setMessages([]);
-    seenUuidsRef.current.clear();
-    connectWebSocket(sessionId);
-  }, [connectWebSocket]);
+    navigateToSession(sessionId);
+  }, [navigateToSession]);
+
+  // Auto-connect when URL contains a sessionId (initial load or popstate navigation)
+  const prevSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (currentSessionId && currentSessionId !== prevSessionRef.current) {
+      setMessages([]);
+      seenUuidsRef.current.clear();
+      connectWebSocket(currentSessionId);
+    }
+    prevSessionRef.current = currentSessionId;
+  }, [currentSessionId, connectWebSocket]);
 
   // Create session
   const handleCreateSession = useCallback(async (envId: string, title: string, prompt: string) => {

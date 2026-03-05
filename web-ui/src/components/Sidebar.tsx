@@ -102,13 +102,17 @@ export function Sidebar({
 
           <div className="space-y-1">
             {activeSessions.map((session) => (
-              <button
+              <a
                 key={session.id}
-                onClick={() => {
+                href={`/code/${session.id}`}
+                onClick={(e) => {
+                  // Allow cmd/ctrl+click to open in new tab
+                  if (e.metaKey || e.ctrlKey) return;
+                  e.preventDefault();
                   onSelectSession(session.id);
                   setMobileOpen(false);
                 }}
-                className={`w-full text-left p-2 rounded-md transition-colors ${
+                className={`block w-full text-left p-2 rounded-md transition-colors no-underline text-foreground ${
                   session.id === currentSessionId
                     ? 'bg-muted border-l-2 border-primary pl-[6px]'
                     : 'hover:bg-muted/50'
@@ -121,7 +125,7 @@ export function Sidebar({
                 <div className="text-xs text-muted-foreground ml-5 mt-0.5">
                   {formatTime(session.created_at)} · {session.message_count} messages
                 </div>
-              </button>
+              </a>
             ))}
           </div>
         </div>
