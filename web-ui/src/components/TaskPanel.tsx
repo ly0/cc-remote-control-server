@@ -69,7 +69,8 @@ export function TaskPanel({ taskState }: TaskPanelProps) {
   const totalCount = allItems.length;
 
   return (
-    <div className="mx-4 mb-3 rounded-md border border-border bg-muted/30 overflow-hidden">
+    <div className="w-full px-4 pt-3 pb-0">
+    <div className="rounded-md border border-border bg-muted/30 overflow-hidden">
       <button
         className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/50 cursor-pointer select-none"
         onClick={() => setCollapsed(!collapsed)}
@@ -91,6 +92,7 @@ export function TaskPanel({ taskState }: TaskPanelProps) {
           {visibleTasks.length > 0 && <TaskList tasks={tasks} />}
         </div>
       )}
+    </div>
     </div>
   );
 }

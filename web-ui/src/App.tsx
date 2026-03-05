@@ -363,10 +363,12 @@ function App() {
                 </div>
               </header>
 
+              {/* Task Panel - fixed above scroll area */}
+              <TaskPanel taskState={taskState} />
+
               {/* Messages */}
               <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
                 <div className="max-w-6xl mx-auto py-4">
-                  <TaskPanel taskState={taskState} />
                   {messages.map((msg, idx) => {
                     if (hiddenIndices.has(idx)) return null;
                     return (
