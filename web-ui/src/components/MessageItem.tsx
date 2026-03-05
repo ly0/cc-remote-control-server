@@ -11,6 +11,7 @@ import {
 
 interface MessageItemProps {
   event: Message;
+  events?: Message[];
   externalToolResults?: Map<string, MessageContent>;
   answeredRequestIds?: Map<string, Record<string, unknown>>;
   onPermissionResponse?: (requestId: string, approved: boolean, updatedInput?: unknown) => void;
@@ -33,13 +34,13 @@ interface MessageItemProps {
  * - keep_alive: Heartbeat messages
  * - connection_status: WebSocket connection status (handled separately)
  */
-export function MessageItem({ event, externalToolResults, answeredRequestIds, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
+export function MessageItem({ event, events, externalToolResults, answeredRequestIds, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
   switch (event.type) {
     case 'user':
       return <UserMessage event={event} />;
 
     case 'assistant':
-      return <AssistantMessage event={event} externalToolResults={externalToolResults} />;
+      return <AssistantMessage event={event} events={events} externalToolResults={externalToolResults} />;
 
     case 'system':
       return <SystemMessage event={event} />;

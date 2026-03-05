@@ -8,6 +8,7 @@ import { ToolResultRenderer } from './ToolResultRenderer';
 
 interface AssistantMessageProps {
   event: Message;
+  events?: Message[];
   externalToolResults?: Map<string, MessageContent>;
 }
 
@@ -30,8 +31,21 @@ function buildToolResultMap(content: MessageContent[]) {
   return { resultMap, associatedIndices };
 }
 
-export function AssistantMessage({ event, externalToolResults }: AssistantMessageProps) {
-  const content = event.message?.content;
+export function AssistantMessage({ event, events, externalToolResults }: AssistantMessageProps) {
+  // Merge content from multiple messages when grouped
+  const content = useMemo(() => {
+    if (!events || events.length <= 1) return event.message?.content;
+    const merged: MessageContent[] = [];
+    for (const e of events) {
+      const c = e.message?.content;
+      if (Array.isArray(c)) {
+        merged.push(...c);
+      } else if (typeof c === 'string' && c) {
+        merged.push({ type: 'text', text: c });
+      }
+    }
+    return merged.length > 0 ? merged : event.message?.content;
+  }, [event, events]);
 
   // Memoize tool_result association map (internal + external cross-message results)
   const { resultMap, associatedIndices } = useMemo(() => {

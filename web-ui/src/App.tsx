@@ -11,6 +11,7 @@ import { api, createSession } from '@/api';
 import { Computer, Send, CircleStop } from 'lucide-react';
 import { buildCrossMessageToolResultMap } from '@/components/message/useToolResultMap';
 import { useTaskState } from '@/hooks/useTaskState';
+import { useGroupedMessages } from '@/hooks/useGroupedMessages';
 import { TaskPanel } from '@/components/TaskPanel';
 
 function App() {
@@ -305,6 +306,9 @@ function App() {
     [messages]
   );
 
+  // Group consecutive assistant messages for merged rendering
+  const renderItems = useGroupedMessages(messages, hiddenIndices);
+
   // Collect request_ids that have been answered (via control_response), with response data
   const answeredRequestIds = useMemo(() => {
     const map = new Map<string, Record<string, unknown>>();
@@ -369,11 +373,35 @@ function App() {
               {/* Messages */}
               <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
                 <div className="max-w-6xl mx-auto py-4">
-                  {messages.map((msg, idx) => {
-                    if (hiddenIndices.has(idx)) return null;
+                  {renderItems.map((item) => {
+                    if (item.type === 'merged-assistant') {
+                      // Merge externalToolResults from all original indices
+                      const mergedResults = new Map<string, import('@/types').MessageContent>();
+                      for (const idx of item.originalIndices) {
+                        const results = toolResultsByIndex.get(idx);
+                        if (results) {
+                          for (const [id, result] of results) {
+                            mergedResults.set(id, result);
+                          }
+                        }
+                      }
+                      return (
+                        <MessageItem
+                          key={item.key}
+                          event={item.messages[0]}
+                          events={item.messages}
+                          externalToolResults={mergedResults.size > 0 ? mergedResults : undefined}
+                          answeredRequestIds={answeredRequestIds}
+                          onPermissionResponse={handlePermissionResponse}
+                          onElicitationResponse={handleElicitationResponse}
+                        />
+                      );
+                    }
+                    const msg = item.messages[0];
+                    const idx = item.originalIndices[0];
                     return (
                       <MessageItem
-                        key={`${msg.uuid || idx}-${idx}`}
+                        key={item.key}
                         event={msg}
                         externalToolResults={toolResultsByIndex.get(idx)}
                         answeredRequestIds={answeredRequestIds}
