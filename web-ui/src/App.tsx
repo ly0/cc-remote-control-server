@@ -173,24 +173,80 @@ function App() {
     }
   }, [environments]);
 
-  // Send message
-  const handleSendMessage = useCallback(() => {
+  // Helper: push a local system message into the chat
+  const pushLocalMessage = useCallback((text: string) => {
+    const msg: Message = {
+      type: 'system',
+      uuid: `local-${Date.now()}`,
+      timestamp: Date.now(),
+      message: { content: text },
+    };
+    setMessages((prev) => [...prev, msg]);
+  }, []);
+
+  // Send message (with slash command interception)
+  const handleSendMessage = useCallback(async () => {
     if (!inputText.trim() || !currentSessionId || !wsRef.current) return;
+
+    const text = inputText.trim();
+    const clearInput = () => {
+      setInputText('');
+      if (inputRef.current) inputRef.current.style.height = 'auto';
+    };
+
+    // --- Front-end slash command interception ---
+    if (text.startsWith('/')) {
+      const parts = text.split(/\s+/);
+      const cmd = parts[0].toLowerCase();
+
+      // /help — render locally
+      if (cmd === '/help') {
+        clearInput();
+        pushLocalMessage(
+          `**Available commands**\n\n` +
+          `| Command | Description |\n` +
+          `|---------|-------------|\n` +
+          `| \`/compact\` | Compact conversation history (reduces context) |\n` +
+          `| \`/clear\` | Clear conversation history |\n` +
+          `| \`/model <name>\` | Switch Claude model (e.g. \`/model sonnet\`) |\n` +
+          `| \`/commit\` | Generate a git commit for staged changes |\n` +
+          `| \`/review\` | Review code changes |\n` +
+          `| \`/help\` | Show this help message |\n\n` +
+          `Most slash commands are forwarded to the CLI for execution. ` +
+          `\`/help\` is rendered locally in the Web UI.`
+        );
+        return;
+      }
+
+      // /model <name> — use control API
+      if (cmd === '/model' && parts.length >= 2) {
+        const modelName = parts.slice(1).join(' ');
+        clearInput();
+        try {
+          await api('POST', `/sessions/${currentSessionId}/control`, {
+            subtype: 'set_model',
+            model: modelName,
+          });
+          pushLocalMessage(`Model switched to **${modelName}**.`);
+        } catch (err) {
+          pushLocalMessage(`Failed to switch model: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+      }
+
+      // All other slash commands — forward to CLI as-is
+    }
 
     if (wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
           type: 'user_message',
-          message: inputText.trim(),
+          message: text,
         })
       );
-      setInputText('');
-      // Reset textarea height
-      if (inputRef.current) {
-        inputRef.current.style.height = 'auto';
-      }
+      clearInput();
     }
-  }, [inputText, currentSessionId]);
+  }, [inputText, currentSessionId, pushLocalMessage]);
 
   // Handle permission response
   const handlePermissionResponse = useCallback(async (requestId: string, approved: boolean, updatedInput?: unknown) => {

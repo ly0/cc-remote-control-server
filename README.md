@@ -103,6 +103,9 @@ grep -n 'session_ingress/ws/' "$CLI_JS"
 
 # 5. Find the tengu_ccr_bridge feature flag
 grep -n 'tengu_ccr_bridge' "$CLI_JS"
+
+# 6. Find the hardcoded skipSlashCommands flag (remote bridge messages)
+grep -n 'skipSlashCommands' "$CLI_JS"
 ```
 
 ### Patch Method
@@ -187,6 +190,18 @@ export CLAUDE_CODE_CUSTOM_OAUTH_URL=https://your-server.example.com
 
    > **Note:** If you already have a claude.ai account and are logged in, you only need Patch 1-2 above. The `CLAUDE_CODE_OAUTH_TOKEN` env var is only needed for users without a claude.ai account.
 
+5. **Enabling slash commands for remote messages**: The CLI disables slash command processing for messages received from the remote bridge (`skipSlashCommands: !0`). This means `/commit`, `/compact`, `/clear` etc. are treated as plain text. To enable them:
+
+   ```bash
+   # Version-independent: enable slash commands for remote bridge messages
+   sed -E -i 's/skipSlashCommands:[[:space:]]*!0/skipSlashCommands:!1/g' "$CLI_JS"
+   ```
+
+   After patching:
+   - `prompt` type commands (`/commit`, `/review` etc.) → expanded as system prompts and sent to Claude, works normally
+   - `local` type commands (`/clear`, `/compact`) → executed locally in the CLI
+   - `local-jsx` + `immediate` commands (`/plan`, `/model`, `/mcp`) → require TUI to be active, may not work in all bridge modes
+
 ### One-Click Patch Script
 
 Save as `patch-claude.sh` and run: `./patch-claude.sh <server-url>`
@@ -243,6 +258,11 @@ sedi 's/return "Remote Control is not enabled. Wait for the feature flag rollout
 
 # 6. Bypass tengu_ccr_bridge async check in bridge init (no-op on 2.1.68+)
 sedi -E 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' "$CLI_JS"
+
+# 7. Enable slash commands for remote bridge messages
+#    The CLI hardcodes skipSlashCommands:!0 in onInboundMessage handlers,
+#    causing all /xxx inputs to be treated as plain text. This enables them.
+sedi -E 's/skipSlashCommands:[[:space:]]*!0/skipSlashCommands:!1/g' "$CLI_JS"
 
 echo ""
 echo "Patched $CLI_JS -> $SERVER_URL (backup: $CLI_JS.bak)"
