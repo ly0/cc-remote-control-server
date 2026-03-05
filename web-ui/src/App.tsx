@@ -10,6 +10,8 @@ import type { Environment, Session, Message, WebSocketMessage } from '@/types';
 import { api, createSession } from '@/api';
 import { Computer, Send, CircleStop } from 'lucide-react';
 import { buildCrossMessageToolResultMap } from '@/components/message/useToolResultMap';
+import { useTaskState } from '@/hooks/useTaskState';
+import { TaskPanel } from '@/components/TaskPanel';
 
 function App() {
   // State
@@ -315,6 +317,9 @@ function App() {
     return map;
   }, [messages]);
 
+  // Task state
+  const taskState = useTaskState(messages);
+
   // Get current session
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
@@ -361,6 +366,7 @@ function App() {
               {/* Messages */}
               <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
                 <div className="max-w-6xl mx-auto py-4">
+                  <TaskPanel taskState={taskState} />
                   {messages.map((msg, idx) => {
                     if (hiddenIndices.has(idx)) return null;
                     return (
