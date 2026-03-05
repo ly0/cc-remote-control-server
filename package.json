@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "npx ts-node src/index.ts",
-    "build": "tsc",
+    "build": "tsc && cd web-ui && npm run build",
+    "build:ui": "cd web-ui && npm run build",
     "start": "node dist/index.js"
   },
   "dependencies": {
