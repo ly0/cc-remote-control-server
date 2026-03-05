@@ -270,22 +270,40 @@ function NotebookEditRenderer({ input, result }: { input: Record<string, unknown
   );
 }
 
-function TaskManagementRenderer({ input, name, result }: { input: Record<string, unknown>; name: string; result?: MessageContent }) {
-  const subject = (input.subject as string) || '';
-  const taskId = (input.taskId as string) || '';
-  const status = (input.status as string) || '';
-  const label = subject || (taskId ? `#${taskId}` : '');
-  const statusBadge = status ? ` [${status}]` : '';
+function TaskManagementRenderer({ input, name }: { input: Record<string, unknown>; name: string; result?: MessageContent }) {
+  let summary = '';
+  switch (name) {
+    case 'TaskCreate':
+      summary = `Created task: ${(input.subject as string) || ''}`;
+      break;
+    case 'TaskUpdate':
+      summary = `Updated task #${(input.taskId as string) || ''}${input.status ? `: ${input.status}` : ''}`;
+      break;
+    case 'TaskList':
+      summary = 'Listed tasks';
+      break;
+    case 'TaskGet':
+      summary = `Retrieved task #${(input.taskId as string) || ''}`;
+      break;
+    default:
+      summary = name;
+  }
   return (
-    <ToolCard icon={ListChecks} name={name} summary={`${label}${statusBadge}`} result={result}>
-      {Object.keys(input).length > 2 && (
-        <CollapsibleSection label="Details">
-          <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap break-all">
-            {JSON.stringify(input, null, 2)}
-          </pre>
-        </CollapsibleSection>
-      )}
-    </ToolCard>
+    <div className="mt-1 px-3 py-1 flex items-center gap-2 text-xs text-muted-foreground">
+      <ListChecks className="w-3.5 h-3.5 shrink-0" />
+      <span>{summary}</span>
+    </div>
+  );
+}
+
+function TodoWriteRenderer({ input }: { input: Record<string, unknown>; result?: MessageContent }) {
+  const todos = input.todos;
+  const count = Array.isArray(todos) ? todos.length : 0;
+  return (
+    <div className="mt-1 px-3 py-1 flex items-center gap-2 text-xs text-muted-foreground">
+      <ListChecks className="w-3.5 h-3.5 shrink-0" />
+      <span>Updated todo list ({count} items)</span>
+    </div>
   );
 }
 
@@ -374,6 +392,8 @@ export function ToolCallRenderer({ block, result }: ToolCallRendererProps) {
     case 'TaskList':
     case 'TaskGet':
       return <TaskManagementRenderer input={input} name={name} result={result} />;
+    case 'TodoWrite':
+      return <TodoWriteRenderer input={input} result={result} />;
     case 'SendMessage':
       return <SendMessageRenderer input={input} result={result} />;
     case 'AskUserQuestion':
