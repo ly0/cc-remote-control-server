@@ -103,6 +103,9 @@ grep -n 'session_ingress/ws/' "$CLI_JS"
 
 # 5. 找到 tengu_ccr_bridge feature flag
 grep -n 'tengu_ccr_bridge' "$CLI_JS"
+
+# 6. 找到硬编码的 skipSlashCommands 标志（远程 bridge 消息）
+grep -n 'skipSlashCommands' "$CLI_JS"
 ```
 
 ### 修补方法
@@ -187,6 +190,18 @@ export CLAUDE_CODE_CUSTOM_OAUTH_URL=https://your-server.example.com
 
    > **注意：** 如果你已有 claude.ai 账号且已登录，只需上面的修补 1-2。`CLAUDE_CODE_OAUTH_TOKEN` 环境变量仅适用于没有 claude.ai 账号的用户。
 
+5. **启用远程消息的 slash command 处理**：CLI 对远程 bridge 收到的消息禁用了 slash command 处理（`skipSlashCommands: !0`）。这意味着 `/commit`、`/compact`、`/clear` 等会被当作纯文本。要启用：
+
+   ```bash
+   # 版本无关：启用远程 bridge 消息的 slash command 处理
+   sed -E -i 's/skipSlashCommands:[[:space:]]*!0/skipSlashCommands:!1/g' "$CLI_JS"
+   ```
+
+   修补后的效果：
+   - `prompt` 类型命令（`/commit`、`/review` 等）→ 展开为 system prompt 注入后发给 Claude，正常工作
+   - `local` 类型命令（`/clear`、`/compact`）→ 在 CLI 本地执行
+   - `local-jsx` + `immediate` 命令（`/plan`、`/model`、`/mcp`）→ 需要 TUI 处于活跃状态，在某些 bridge 模式下可能不生效
+
 ### 一键修补脚本
 
 保存为 `patch-claude.sh` 并运行：`./patch-claude.sh <server-url>`
@@ -243,6 +258,11 @@ sedi 's/return "Remote Control is not enabled. Wait for the feature flag rollout
 
 # 6. 中和 bridge 初始化中的 async flag 检查（2.1.68+ 已内置为 true，此为空操作）
 sedi -E 's/return [A-Za-z0-9_]+\("tengu_ccr_bridge"\)/return !0/' "$CLI_JS"
+
+# 7. 启用远程 bridge 消息的 slash command 处理
+#    CLI 在 onInboundMessage handler 中硬编码了 skipSlashCommands:!0，
+#    导致所有 /xxx 输入被当作纯文本。此修补启用 slash command 处理。
+sedi -E 's/skipSlashCommands:[[:space:]]*!0/skipSlashCommands:!1/g' "$CLI_JS"
 
 echo ""
 echo "已修补 $CLI_JS，目标服务器: $SERVER_URL（备份: $CLI_JS.bak）"
