@@ -1,4 +1,4 @@
-import type { Message } from '@/types';
+import type { Message, MessageContent } from '@/types';
 import {
   UserMessage,
   AssistantMessage,
@@ -11,6 +11,7 @@ import {
 
 interface MessageItemProps {
   event: Message;
+  externalToolResults?: Map<string, MessageContent>;
   onPermissionResponse?: (requestId: string, approved: boolean, updatedInput?: unknown) => void;
   onElicitationResponse?: (requestId: string, action: 'accept' | 'decline', content?: Record<string, unknown>) => void;
 }
@@ -31,13 +32,13 @@ interface MessageItemProps {
  * - keep_alive: Heartbeat messages
  * - connection_status: WebSocket connection status (handled separately)
  */
-export function MessageItem({ event, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
+export function MessageItem({ event, externalToolResults, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
   switch (event.type) {
     case 'user':
       return <UserMessage event={event} />;
 
     case 'assistant':
-      return <AssistantMessage event={event} />;
+      return <AssistantMessage event={event} externalToolResults={externalToolResults} />;
 
     case 'system':
       return <SystemMessage event={event} />;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { MessageItem } from '@/components/MessageItem';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import type { Environment, Session, Message, WebSocketMessage } from '@/types';
 import { api, createSession } from '@/api';
 import { Computer, Send, CircleStop } from 'lucide-react';
+import { buildCrossMessageToolResultMap } from '@/components/message/useToolResultMap';
 
 function App() {
   // State
@@ -240,6 +241,12 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Pre-process cross-message tool_result associations
+  const { toolResultsByIndex, hiddenIndices } = useMemo(
+    () => buildCrossMessageToolResultMap(messages),
+    [messages]
+  );
+
   // Get current session
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
@@ -286,14 +293,18 @@ function App() {
               {/* Messages */}
               <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
                 <div className="max-w-6xl mx-auto py-4">
-                  {messages.map((msg, idx) => (
-                    <MessageItem
-                      key={`${msg.uuid || idx}-${idx}`}
-                      event={msg}
-                      onPermissionResponse={handlePermissionResponse}
-                      onElicitationResponse={handleElicitationResponse}
-                    />
-                  ))}
+                  {messages.map((msg, idx) => {
+                    if (hiddenIndices.has(idx)) return null;
+                    return (
+                      <MessageItem
+                        key={`${msg.uuid || idx}-${idx}`}
+                        event={msg}
+                        externalToolResults={toolResultsByIndex.get(idx)}
+                        onPermissionResponse={handlePermissionResponse}
+                        onElicitationResponse={handleElicitationResponse}
+                      />
+                    );
+                  })}
                   <div ref={messagesEndRef} />
                 </div>
               </div>

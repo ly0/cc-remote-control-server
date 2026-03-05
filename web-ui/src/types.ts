@@ -21,6 +21,9 @@ export interface MessageContent {
   name?: string;
   input?: unknown;
   content?: unknown;
+  id?: string;           // tool_use block ID (Claude API standard)
+  tool_use_id?: string;  // tool_result references this to associate with tool_use
+  is_error?: boolean;    // tool_result error flag
 }
 
 export interface Message {

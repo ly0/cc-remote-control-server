@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import type { Message } from '@/types';
 import { AskUserQuestion } from './AskUserQuestion';
+import { ToolInputDisplay } from './ToolInputDisplay';
 
 interface PermissionRequestProps {
   event: Message;
@@ -28,8 +29,7 @@ export function PermissionRequest({ event, onPermissionResponse }: PermissionReq
     );
   }
 
-  const description = req?.description || '';
-  const input = req?.input ? JSON.stringify(req.input, null, 2) : '';
+  const rawInput = (req?.input || {}) as Record<string, unknown>;
 
   const handleResponse = (approved: boolean) => {
     setAnswered(true);
@@ -43,12 +43,9 @@ export function PermissionRequest({ event, onPermissionResponse }: PermissionReq
         <span className="font-semibold text-sm">Permission Required</span>
       </div>
       <Badge variant="secondary" className="mb-2 font-mono">{toolName}</Badge>
-      {description && <p className="text-sm mb-2">{description}</p>}
-      {input && (
-        <pre className="text-xs bg-background p-2 rounded border border-border overflow-hidden mb-3 font-mono text-muted-foreground whitespace-pre-wrap break-all">
-          {input}
-        </pre>
-      )}
+      <div className="mb-3">
+        <ToolInputDisplay toolName={toolName} input={rawInput} />
+      </div>
       {!answered && (
         <div className="flex gap-2">
           <Button size="sm" onClick={() => handleResponse(true)}>

@@ -1,67 +1,55 @@
-import { formatTime, escapeHtml } from './utils';
+import { useMemo } from 'react';
+import { formatTime } from './utils';
 import type { Message, MessageContent } from '@/types';
 import { Avatar } from './Avatar';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { ToolCallRenderer } from './ToolCallRenderer';
+import { ToolResultRenderer } from './ToolResultRenderer';
 
 interface AssistantMessageProps {
   event: Message;
+  externalToolResults?: Map<string, MessageContent>;
 }
 
-interface ToolUseBlockProps {
-  block: MessageContent;
+/**
+ * Build a map from tool_use.id → tool_result block (for inline association).
+ * Returns the map and a Set of indices that have been associated.
+ */
+function buildToolResultMap(content: MessageContent[]) {
+  const resultMap = new Map<string, MessageContent>();
+  const associatedIndices = new Set<number>();
+
+  // First pass: collect all tool_result blocks by their tool_use_id
+  content.forEach((block, idx) => {
+    if (block.type === 'tool_result' && block.tool_use_id) {
+      resultMap.set(block.tool_use_id, block);
+      associatedIndices.add(idx);
+    }
+  });
+
+  return { resultMap, associatedIndices };
 }
 
-function ToolUseBlock({ block }: ToolUseBlockProps) {
-  // Skip AskUserQuestion as it's handled separately
-  if (block.name === 'AskUserQuestion') {
-    return null;
-  }
+export function AssistantMessage({ event, externalToolResults }: AssistantMessageProps) {
+  const content = event.message?.content;
 
-  // Special handling for Bash tool
-  if (block.name === 'Bash') {
-    const input = block.input as { command?: string; description?: string } | undefined;
-    const command = input?.command || '';
-    const description = input?.description || '';
-    return (
-      <div className="mt-2 p-3 bg-muted/50 rounded border border-border">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-semibold text-primary">Bash</span>
-          {description && <span className="text-xs text-muted-foreground">{description}</span>}
-        </div>
-        <pre className="text-xs bg-background p-2 rounded border border-border font-mono text-foreground whitespace-pre-wrap break-all">
-          $ {command}
-        </pre>
-      </div>
-    );
-  }
+  // Memoize tool_result association map (internal + external cross-message results)
+  const { resultMap, associatedIndices } = useMemo(() => {
+    if (!content || !Array.isArray(content)) {
+      return { resultMap: new Map<string, MessageContent>(), associatedIndices: new Set<number>() };
+    }
+    const internal = buildToolResultMap(content);
+    // Merge external results (from subsequent user messages), internal takes priority
+    if (externalToolResults) {
+      for (const [id, result] of externalToolResults) {
+        if (!internal.resultMap.has(id)) {
+          internal.resultMap.set(id, result);
+        }
+      }
+    }
+    return internal;
+  }, [content, externalToolResults]);
 
-  // Generic tool use
-  return (
-    <div className="mt-2 p-2 bg-muted/50 rounded border border-border font-mono text-xs">
-      <div className="text-primary font-semibold">{block.name || 'tool'}</div>
-      <pre className="mt-1 text-muted-foreground whitespace-pre-wrap break-all">
-        {escapeHtml(JSON.stringify(block.input, null, 2))}
-      </pre>
-    </div>
-  );
-}
-
-interface ToolResultBlockProps {
-  block: MessageContent;
-}
-
-function ToolResultBlock({ block }: ToolResultBlockProps) {
-  return (
-    <div className="mt-2 p-2 bg-muted/50 rounded border border-border font-mono text-xs">
-      <div className="text-primary font-semibold">Tool Result</div>
-      <pre className="mt-1 text-muted-foreground whitespace-pre-wrap break-all">
-        {escapeHtml(typeof block.content === 'string' ? block.content : JSON.stringify(block.content, null, 2))}
-      </pre>
-    </div>
-  );
-}
-
-export function AssistantMessage({ event }: AssistantMessageProps) {
   if (!event.message) {
     return (
       <div className="flex gap-3 mb-4 px-4 py-2 hover:bg-muted/30">
@@ -80,8 +68,6 @@ export function AssistantMessage({ event }: AssistantMessageProps) {
       </div>
     );
   }
-
-  const content = event.message.content;
 
   // Handle string content
   if (typeof content === 'string') {
@@ -125,10 +111,21 @@ export function AssistantMessage({ event }: AssistantMessageProps) {
                 return <MarkdownRenderer key={idx} content={block.text || ''} />;
               }
               if (block.type === 'tool_use') {
-                return <ToolUseBlock key={idx} block={block} />;
+                // Skip AskUserQuestion - handled separately in the message flow
+                if (block.name === 'AskUserQuestion') return null;
+                // Look up associated result by tool_use id
+                const associatedResult = block.id ? resultMap.get(block.id) : undefined;
+                return <ToolCallRenderer key={idx} block={block} result={associatedResult} />;
               }
               if (block.type === 'tool_result') {
-                return <ToolResultBlock key={idx} block={block} />;
+                // Skip if already associated with a tool_use (rendered inline)
+                if (associatedIndices.has(idx)) return null;
+                // Orphan tool_result - render standalone
+                return (
+                  <div key={idx} className="mt-2">
+                    <ToolResultRenderer block={block} />
+                  </div>
+                );
               }
               return null;
             })}

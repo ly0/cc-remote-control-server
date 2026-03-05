@@ -93,6 +93,23 @@
   50% { opacity: 1; }
 }
 
+/* Diff view line coloring */
+.diff-add {
+  background-color: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+}
+
+.diff-remove {
+  background-color: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+}
+
+/* Tool result collapsible transition */
+.tool-result-content {
+  transition: max-height 0.2s ease-out;
+  overflow: hidden;
+}
+
 /* Fix overflow on small screens */
 pre, code {
   word-wrap: break-word;
