@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,12 +8,33 @@ import type { Question } from '@/types';
 
 interface AskUserQuestionProps {
   questions: Question[];
+  isAlreadyAnswered?: boolean;
+  responseData?: Record<string, unknown>;
   onSubmit: (updatedInput: unknown) => void;
 }
 
-export function AskUserQuestion({ questions, onSubmit }: AskUserQuestionProps) {
-  const [answered, setAnswered] = useState(false);
+export function AskUserQuestion({ questions, isAlreadyAnswered, responseData, onSubmit }: AskUserQuestionProps) {
+  const [answered, setAnswered] = useState(isAlreadyAnswered || false);
+
+  useEffect(() => {
+    if (isAlreadyAnswered) setAnswered(true);
+  }, [isAlreadyAnswered]);
   const [answers, setAnswers] = useState<Record<number, string[]>>({});
+
+  // When externally answered, populate answers from responseData
+  useEffect(() => {
+    if (!isAlreadyAnswered || !responseData?.updatedInput) return;
+    const updatedInput = responseData.updatedInput as { answers?: Record<string, string> };
+    if (!updatedInput.answers) return;
+    const newAnswers: Record<number, string[]> = {};
+    questions.forEach((q, idx) => {
+      const val = updatedInput.answers?.[q.question];
+      if (val) {
+        newAnswers[idx] = val.split(',').map((s) => s.trim());
+      }
+    });
+    setAnswers(newAnswers);
+  }, [isAlreadyAnswered, responseData, questions]);
   const [otherInputs, setOtherInputs] = useState<Record<number, string>>({});
 
   const handleOptionToggle = (qIndex: number, value: string, isMulti: boolean) => {

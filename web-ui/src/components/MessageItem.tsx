@@ -12,6 +12,7 @@ import {
 interface MessageItemProps {
   event: Message;
   externalToolResults?: Map<string, MessageContent>;
+  answeredRequestIds?: Map<string, Record<string, unknown>>;
   onPermissionResponse?: (requestId: string, approved: boolean, updatedInput?: unknown) => void;
   onElicitationResponse?: (requestId: string, action: 'accept' | 'decline', content?: Record<string, unknown>) => void;
 }
@@ -32,7 +33,7 @@ interface MessageItemProps {
  * - keep_alive: Heartbeat messages
  * - connection_status: WebSocket connection status (handled separately)
  */
-export function MessageItem({ event, externalToolResults, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
+export function MessageItem({ event, externalToolResults, answeredRequestIds, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
   switch (event.type) {
     case 'user':
       return <UserMessage event={event} />;
@@ -50,6 +51,7 @@ export function MessageItem({ event, externalToolResults, onPermissionResponse, 
       return (
         <ControlRequest
           event={event}
+          answeredRequestIds={answeredRequestIds}
           onPermissionResponse={onPermissionResponse}
           onElicitationResponse={onElicitationResponse}
         />

@@ -303,6 +303,18 @@ function App() {
     [messages]
   );
 
+  // Collect request_ids that have been answered (via control_response), with response data
+  const answeredRequestIds = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>>();
+    for (const msg of messages) {
+      if (msg.type === 'control_response') {
+        const rid = msg.response?.request_id || msg.request_id;
+        if (rid) map.set(rid, (msg.response?.response || {}) as Record<string, unknown>);
+      }
+    }
+    return map;
+  }, [messages]);
+
   // Get current session
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
@@ -356,6 +368,7 @@ function App() {
                         key={`${msg.uuid || idx}-${idx}`}
                         event={msg}
                         externalToolResults={toolResultsByIndex.get(idx)}
+                        answeredRequestIds={answeredRequestIds}
                         onPermissionResponse={handlePermissionResponse}
                         onElicitationResponse={handleElicitationResponse}
                       />

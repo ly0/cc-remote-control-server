@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -9,21 +9,33 @@ import { ToolInputDisplay } from './ToolInputDisplay';
 
 interface PermissionRequestProps {
   event: Message;
+  isAlreadyAnswered?: boolean;
+  responseData?: Record<string, unknown>;
   onPermissionResponse?: (requestId: string, approved: boolean, updatedInput?: unknown) => void;
 }
 
-export function PermissionRequest({ event, onPermissionResponse }: PermissionRequestProps) {
-  const [answered, setAnswered] = useState(false);
+export function PermissionRequest({ event, isAlreadyAnswered, responseData, onPermissionResponse }: PermissionRequestProps) {
+  const [answered, setAnswered] = useState(isAlreadyAnswered || false);
+  const [localBehavior, setLocalBehavior] = useState<'allow' | 'deny' | null>(null);
+
+  useEffect(() => {
+    if (isAlreadyAnswered) setAnswered(true);
+  }, [isAlreadyAnswered]);
 
   const req = event.request;
   const requestId = event.request_id || req?.request_id;
   const toolName = req?.tool_name || 'unknown tool';
+
+  // Determine the behavior to display
+  const behavior = localBehavior || (responseData?.behavior as string | undefined);
 
   // Handle AskUserQuestion specially
   if (toolName === 'AskUserQuestion' && req?.input?.questions) {
     return (
       <AskUserQuestion
         questions={req.input.questions}
+        isAlreadyAnswered={isAlreadyAnswered}
+        responseData={responseData}
         onSubmit={(updatedInput) => onPermissionResponse?.(requestId || '', true, updatedInput)}
       />
     );
@@ -33,6 +45,7 @@ export function PermissionRequest({ event, onPermissionResponse }: PermissionReq
 
   const handleResponse = (approved: boolean) => {
     setAnswered(true);
+    setLocalBehavior(approved ? 'allow' : 'deny');
     onPermissionResponse?.(requestId || '', approved);
   };
 
@@ -59,10 +72,22 @@ export function PermissionRequest({ event, onPermissionResponse }: PermissionReq
         </div>
       )}
       {answered && (
-        <Badge variant="outline" className="text-success border-success">
-          <CheckCircle className="w-3 h-3 mr-1" />
-          Responded
-        </Badge>
+        behavior === 'deny' ? (
+          <Badge variant="outline" className="text-destructive border-destructive">
+            <XCircle className="w-3 h-3 mr-1" />
+            Denied
+          </Badge>
+        ) : behavior === 'allow' ? (
+          <Badge variant="outline" className="text-success border-success">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Allowed
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-success border-success">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Responded
+          </Badge>
+        )
       )}
     </Card>
   );

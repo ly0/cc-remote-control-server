@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,10 +8,12 @@ import type { Message } from '@/types';
 
 interface ElicitationProps {
   event: Message;
+  isAlreadyAnswered?: boolean;
+  responseData?: Record<string, unknown>;
   onElicitationResponse?: (requestId: string, action: 'accept' | 'decline', content?: Record<string, unknown>) => void;
 }
 
-export function Elicitation({ event, onElicitationResponse }: ElicitationProps) {
+export function Elicitation({ event, isAlreadyAnswered, responseData, onElicitationResponse }: ElicitationProps) {
   const req = event.request;
   const requestId = event.request_id || req?.request_id;
   const serverName = req?.mcp_server_name || 'MCP Server';
@@ -19,11 +21,20 @@ export function Elicitation({ event, onElicitationResponse }: ElicitationProps) 
   const schema = req?.requested_schema;
 
   const [formData, setFormData] = useState<Record<string, unknown>>({});
-  const [responded, setResponded] = useState(false);
+  const [responded, setResponded] = useState(isAlreadyAnswered || false);
+  const [localAction, setLocalAction] = useState<'accept' | 'decline' | null>(null);
 
-  const handleSubmit = (action: 'accept' | 'decline') => {
+  useEffect(() => {
+    if (isAlreadyAnswered) setResponded(true);
+  }, [isAlreadyAnswered]);
+
+  // Determine the action to display
+  const action = localAction || (responseData?.action as string | undefined);
+
+  const handleSubmit = (submitAction: 'accept' | 'decline') => {
     setResponded(true);
-    onElicitationResponse?.(requestId || '', action, action === 'accept' ? formData : {});
+    setLocalAction(submitAction);
+    onElicitationResponse?.(requestId || '', submitAction, submitAction === 'accept' ? formData : {});
   };
 
   return (
@@ -95,10 +106,22 @@ export function Elicitation({ event, onElicitationResponse }: ElicitationProps) 
         </div>
       )}
       {responded && (
-        <Badge variant="outline" className="text-success border-success">
-          <CheckCircle className="w-3 h-3 mr-1" />
-          Responded
-        </Badge>
+        action === 'decline' ? (
+          <Badge variant="outline" className="text-destructive border-destructive">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Declined
+          </Badge>
+        ) : action === 'accept' ? (
+          <Badge variant="outline" className="text-success border-success">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Accepted
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-success border-success">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Responded
+          </Badge>
+        )
       )}
     </Card>
   );
