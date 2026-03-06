@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Sidebar } from '@/components/Sidebar';
 import { MessageItem } from '@/components/MessageItem';
 import { NewSessionDialog } from '@/components/NewSessionDialog';
@@ -11,7 +12,7 @@ import { api, createSession } from '@/api';
 import { Computer, Send, CircleStop } from 'lucide-react';
 import { buildCrossMessageToolResultMap } from '@/components/message/useToolResultMap';
 import { useTaskState } from '@/hooks/useTaskState';
-import { useGroupedMessages } from '@/hooks/useGroupedMessages';
+import { useGroupedMessages, type RenderItem } from '@/hooks/useGroupedMessages';
 import { useSessionRouter } from '@/hooks/useSessionRouter';
 import { TaskPanel } from '@/components/TaskPanel';
 
@@ -27,7 +28,8 @@ function App() {
   const [selectedEnv, setSelectedEnv] = useState<Environment | null>(null);
   // Refs
   const wsRef = useRef<WebSocket | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const seenUuidsRef = useRef<Set<string>>(new Set());
 
@@ -304,11 +306,6 @@ function App() {
     }
   };
 
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
   // Pre-process cross-message tool_result associations
   const { toolResultsByIndex, hiddenIndices } = useMemo(
     () => buildCrossMessageToolResultMap(messages),
@@ -329,6 +326,64 @@ function App() {
     }
     return map;
   }, [messages]);
+
+  // Virtual scrolling
+  const virtualizer = useVirtualizer({
+    count: renderItems.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 120,
+    overscan: 5,
+  });
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  }, []);
+
+  useEffect(() => {
+    if (isAtBottomRef.current && renderItems.length > 0) {
+      virtualizer.scrollToIndex(renderItems.length - 1, { align: 'end' });
+    }
+  }, [renderItems.length, virtualizer]);
+
+  // Helper to render a single item
+  const renderMessageItem = useCallback((item: RenderItem) => {
+    if (item.type === 'merged-assistant') {
+      const mergedResults = new Map<string, import('@/types').MessageContent>();
+      for (const idx of item.originalIndices) {
+        const results = toolResultsByIndex.get(idx);
+        if (results) {
+          for (const [id, result] of results) {
+            mergedResults.set(id, result);
+          }
+        }
+      }
+      return (
+        <MessageItem
+          key={item.key}
+          event={item.messages[0]}
+          events={item.messages}
+          externalToolResults={mergedResults.size > 0 ? mergedResults : undefined}
+          answeredRequestIds={answeredRequestIds}
+          onPermissionResponse={handlePermissionResponse}
+          onElicitationResponse={handleElicitationResponse}
+        />
+      );
+    }
+    const msg = item.messages[0];
+    const idx = item.originalIndices[0];
+    return (
+      <MessageItem
+        key={item.key}
+        event={msg}
+        externalToolResults={toolResultsByIndex.get(idx)}
+        answeredRequestIds={answeredRequestIds}
+        onPermissionResponse={handlePermissionResponse}
+        onElicitationResponse={handleElicitationResponse}
+      />
+    );
+  }, [toolResultsByIndex, answeredRequestIds, handlePermissionResponse, handleElicitationResponse]);
 
   // Task state
   const taskState = useTaskState(messages);
@@ -377,49 +432,37 @@ function App() {
               </header>
 
               {/* Task Panel - fixed above scroll area */}
-              <TaskPanel taskState={taskState} />
+              <TaskPanel taskState={taskState} messages={messages} />
 
-              {/* Messages */}
-              <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
-                <div className="max-w-6xl mx-auto py-4">
-                  {renderItems.map((item) => {
-                    if (item.type === 'merged-assistant') {
-                      // Merge externalToolResults from all original indices
-                      const mergedResults = new Map<string, import('@/types').MessageContent>();
-                      for (const idx of item.originalIndices) {
-                        const results = toolResultsByIndex.get(idx);
-                        if (results) {
-                          for (const [id, result] of results) {
-                            mergedResults.set(id, result);
-                          }
-                        }
-                      }
-                      return (
-                        <MessageItem
-                          key={item.key}
-                          event={item.messages[0]}
-                          events={item.messages}
-                          externalToolResults={mergedResults.size > 0 ? mergedResults : undefined}
-                          answeredRequestIds={answeredRequestIds}
-                          onPermissionResponse={handlePermissionResponse}
-                          onElicitationResponse={handleElicitationResponse}
-                        />
-                      );
-                    }
-                    const msg = item.messages[0];
-                    const idx = item.originalIndices[0];
+              {/* Messages (virtual scroll) */}
+              <div
+                ref={scrollContainerRef}
+                className="flex-1 min-h-0 min-w-0 overflow-y-auto"
+                onScroll={handleScroll}
+              >
+                <div
+                  className="max-w-6xl mx-auto relative"
+                  style={{ height: virtualizer.getTotalSize() + 32, paddingTop: 16 }}
+                >
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const item = renderItems[virtualRow.index];
                     return (
-                      <MessageItem
+                      <div
                         key={item.key}
-                        event={msg}
-                        externalToolResults={toolResultsByIndex.get(idx)}
-                        answeredRequestIds={answeredRequestIds}
-                        onPermissionResponse={handlePermissionResponse}
-                        onElicitationResponse={handleElicitationResponse}
-                      />
+                        ref={virtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          transform: `translateY(${virtualRow.start + 16}px)`,
+                        }}
+                      >
+                        {renderMessageItem(item)}
+                      </div>
                     );
                   })}
-                  <div ref={messagesEndRef} />
                 </div>
               </div>
 

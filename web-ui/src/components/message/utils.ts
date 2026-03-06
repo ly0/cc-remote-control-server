@@ -27,6 +27,25 @@ export function extractText(event: Message): string {
   return JSON.stringify(content);
 }
 
+// CLI 内部 XML 标签列表（来自 cli.js 的 CNK 数组）
+const CLI_INTERNAL_TAGS = [
+  'ide_opened_file', 'ide_selection',
+  'command-name', 'command-message', 'command-args',
+  'session-start-hook', 'tick', 'goal',
+  'bash-input', 'bash-stdout', 'bash-stderr',
+  'local-command-stdout', 'local-command-stderr', 'local-command-caveat',
+];
+
+const CLI_INTERNAL_TAG_RE = new RegExp(
+  CLI_INTERNAL_TAGS.map(t => `<${t}(?:\\s[^>]*)?>[\\s\\S]*?<\\/${t}>\\n?`).join('|'),
+  'g'
+);
+
+/** 检测文本内容是否全部由 CLI 内部 XML 标签组成 */
+export function isCliInternalContent(text: string): boolean {
+  return text.trim().length > 0 && text.replace(CLI_INTERNAL_TAG_RE, '').trim() === '';
+}
+
 export function extractToolResultText(event: Message): string {
   if (!event.message) return '';
   const content = event.message.content;

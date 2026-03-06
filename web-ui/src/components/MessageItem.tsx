@@ -9,6 +9,7 @@ import {
   ControlResponse,
   CompactSummary,
 } from '@/components/message';
+import { extractText, isCliInternalContent } from '@/components/message/utils';
 
 interface MessageItemProps {
   event: Message;
@@ -37,11 +38,16 @@ interface MessageItemProps {
  */
 export function MessageItem({ event, events, externalToolResults, answeredRequestIds, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
   switch (event.type) {
-    case 'user':
+    case 'user': {
+      const text = extractText(event);
+      if (isCliInternalContent(text)) {
+        return null;
+      }
       if (event.isSynthetic) {
         return <CompactSummary event={event} />;
       }
       return <UserMessage event={event} />;
+    }
 
     case 'assistant':
       return <AssistantMessage event={event} events={events} externalToolResults={externalToolResults} />;
