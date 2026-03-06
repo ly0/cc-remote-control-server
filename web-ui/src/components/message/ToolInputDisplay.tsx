@@ -1,4 +1,5 @@
 import { CodeBlock, DiffView, CollapsibleSection } from './ToolCallRenderer';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 interface ToolInputDisplayProps {
   toolName: string;
@@ -73,6 +74,16 @@ export function ToolInputDisplay({ toolName, input }: ToolInputDisplayProps) {
       const description = (input.description as string) || '';
       const subagentType = (input.subagent_type as string) || '';
       return <p className="text-sm">[{subagentType}] {description}</p>;
+    }
+    case 'ExitPlanMode':
+    case 'EnterPlanMode': {
+      const plan = (input.plan as string) || '';
+      if (!plan) return null;
+      return (
+        <CollapsibleSection label="Plan" defaultOpen>
+          <MarkdownRenderer content={plan} />
+        </CollapsibleSection>
+      );
     }
     default: {
       const entries = Object.entries(input).filter(([, v]) => v !== undefined && v !== null);
