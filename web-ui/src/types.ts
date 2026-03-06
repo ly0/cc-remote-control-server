@@ -55,6 +55,7 @@ export interface Message {
   };
   request_id?: string;
   is_error?: boolean;
+  isSynthetic?: boolean;
   result?: string;
   state?: string;
   events?: EventMessage[];

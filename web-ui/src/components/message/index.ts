@@ -8,4 +8,5 @@ export { ThinkingIndicator } from './ThinkingIndicator';
 export { ControlRequest } from './ControlRequest';
 export { ControlResponse } from './ControlResponse';
 export { MarkdownRenderer } from './MarkdownRenderer';
+export { CompactSummary } from './CompactSummary';
 export * from './utils';

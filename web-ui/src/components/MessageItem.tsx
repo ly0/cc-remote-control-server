@@ -7,6 +7,7 @@ import {
   ThinkingIndicator,
   ControlRequest,
   ControlResponse,
+  CompactSummary,
 } from '@/components/message';
 
 interface MessageItemProps {
@@ -37,6 +38,9 @@ interface MessageItemProps {
 export function MessageItem({ event, events, externalToolResults, answeredRequestIds, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
   switch (event.type) {
     case 'user':
+      if (event.isSynthetic) {
+        return <CompactSummary event={event} />;
+      }
       return <UserMessage event={event} />;
 
     case 'assistant':
