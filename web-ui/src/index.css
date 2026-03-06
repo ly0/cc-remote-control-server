@@ -29,6 +29,33 @@
 
 @layer base {
   :root {
+    --background: #ffffff;
+    --foreground: #1f2328;
+    --card: #f6f8fa;
+    --card-foreground: #1f2328;
+    --popover: #ffffff;
+    --popover-foreground: #1f2328;
+    --primary: #0969da;
+    --primary-foreground: #ffffff;
+    --secondary: #f6f8fa;
+    --secondary-foreground: #1f2328;
+    --muted: #f6f8fa;
+    --muted-foreground: #656d76;
+    --accent: #0969da;
+    --accent-foreground: #ffffff;
+    --destructive: #d1242f;
+    --border: #d0d7de;
+    --input: #f6f8fa;
+    --ring: #0969da;
+    --radius: 0.5rem;
+    --success: #1a7f37;
+    --warning: #9a6700;
+    --diff-add-bg: rgba(26, 127, 55, 0.1);
+    --diff-add-fg: #1a7f37;
+    --diff-remove-bg: rgba(209, 36, 47, 0.1);
+    --diff-remove-fg: #d1242f;
+  }
+  .dark {
     --background: #0d1117;
     --foreground: #e6edf3;
     --card: #161b22;
@@ -50,6 +77,10 @@
     --radius: 0.5rem;
     --success: #3fb950;
     --warning: #d29922;
+    --diff-add-bg: rgba(63, 185, 80, 0.15);
+    --diff-add-fg: #3fb950;
+    --diff-remove-bg: rgba(248, 81, 73, 0.15);
+    --diff-remove-fg: #f85149;
   }
   * {
     @apply border-border outline-ring/50;
@@ -95,13 +126,13 @@
 
 /* Diff view line coloring */
 .diff-add {
-  background-color: rgba(63, 185, 80, 0.15);
-  color: #3fb950;
+  background-color: var(--diff-add-bg);
+  color: var(--diff-add-fg);
 }
 
 .diff-remove {
-  background-color: rgba(248, 81, 73, 0.15);
-  color: #f85149;
+  background-color: var(--diff-remove-bg);
+  color: var(--diff-remove-fg);
 }
 
 /* Tool result collapsible transition */

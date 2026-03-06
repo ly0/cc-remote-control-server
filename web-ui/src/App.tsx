@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Environment, Session, Message, WebSocketMessage } from '@/types';
 import { api, createSession } from '@/api';
-import { Computer, Send, CircleStop } from 'lucide-react';
+import { Computer, Send, CircleStop, Sun, Moon } from 'lucide-react';
+import { useTheme } from '@/hooks/useTheme';
 import { buildCrossMessageToolResultMap } from '@/components/message/useToolResultMap';
 import { useTaskState } from '@/hooks/useTaskState';
 import { useGroupedMessages, type RenderItem } from '@/hooks/useGroupedMessages';
@@ -385,6 +386,12 @@ function App() {
     );
   }, [toolResultsByIndex, answeredRequestIds, handlePermissionResponse, handleElicitationResponse]);
 
+  // Theme
+  const { resolvedTheme, setTheme } = useTheme();
+  const toggleTheme = useCallback(() => {
+    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+  }, [resolvedTheme, setTheme]);
+
   // Task state
   const taskState = useTaskState(messages);
 
@@ -419,6 +426,14 @@ function App() {
                     <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${cliConnected ? 'bg-success' : 'bg-muted-foreground'}`} />
                     {cliConnected ? 'CLI Connected' : 'CLI Disconnected'}
                   </Badge>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" onClick={toggleTheme} className="w-8 h-8 p-0">
+                        {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}</TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="destructive" size="sm" onClick={handleInterrupt}>
@@ -490,7 +505,15 @@ function App() {
             </>
           ) : (
             /* Empty State */
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center relative">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" onClick={toggleTheme} className="absolute top-4 right-4 w-8 h-8 p-0">
+                    {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{resolvedTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}</TooltipContent>
+              </Tooltip>
               <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mb-4">
                 <Computer className="w-8 h-8 text-muted-foreground" />
               </div>
