@@ -9,6 +9,51 @@ import { logger } from "../utils/logger";
 
 const TAG = "route:web";
 
+const PLAN_MODE_EXIT_PROMPT = `<system-reminder>
+The user has exited plan mode from the UI. Call ExitPlanMode immediately to confirm the exit. Do not add any commentary.
+</system-reminder>`;
+
+function sendSlashPlanToCliSession(
+  sessionId: string,
+  sessionManager: SessionManager,
+  connectionManager: ConnectionManager
+) {
+  const msg = {
+    type: "user" as const,
+    message: {
+      role: "user" as const,
+      content: [{ type: "text", text: "/plan" }],
+    },
+    session_id: sessionId,
+    uuid: uuidv4(),
+    timestamp: Date.now(),
+  };
+  sessionManager.addMessage(sessionId, msg);
+  connectionManager.sendRawToCliSession(sessionId, msg);
+  connectionManager.sendEventToWebClients(sessionId, msg);
+}
+
+function sendExitPlanModePrompt(
+  sessionId: string,
+  sessionManager: SessionManager,
+  connectionManager: ConnectionManager
+) {
+  const msg = {
+    type: "user" as const,
+    message: {
+      role: "user" as const,
+      content: [{ type: "text", text: PLAN_MODE_EXIT_PROMPT }],
+    },
+    session_id: sessionId,
+    uuid: uuidv4(),
+    isMeta: true,
+    timestamp: Date.now(),
+  };
+  sessionManager.addMessage(sessionId, msg);
+  connectionManager.sendRawToCliSession(sessionId, msg);
+  connectionManager.sendEventToWebClients(sessionId, msg);
+}
+
 export function createWebApiRoutes(
   envManager: EnvironmentManager,
   sessionManager: SessionManager,
@@ -234,7 +279,7 @@ export function createWebApiRoutes(
    */
   router.post("/api/sessions/:sessionId/control", (req, res) => {
     const { sessionId } = req.params;
-    const { subtype, model, max_thinking_tokens } = req.body;
+    const { subtype, model, max_thinking_tokens, mode } = req.body;
 
     if (!subtype) {
       res.status(400).json({ error: "subtype is required" });
@@ -242,10 +287,46 @@ export function createWebApiRoutes(
     }
 
     const requestId = uuidv4();
+
+    // Intercept set_permission_mode — REPL bridge doesn't support it,
+    // so we handle it server-side and synthesize a control_response.
+    if (subtype === "set_permission_mode") {
+      const session = sessionManager.get(sessionId);
+      if (!session) {
+        res.status(404).json({ error: "Session not found" });
+        return;
+      }
+      const newMode = mode || "default";
+      const { previousMode } = sessionManager.updatePermissionMode(sessionId, newMode);
+      const controlResponse = {
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: requestId,
+          response: { mode: session.permissionMode },
+        },
+        session_id: sessionId,
+        uuid: uuidv4(),
+        timestamp: Date.now(),
+      };
+      sessionManager.addMessage(sessionId, controlResponse);
+      connectionManager.sendEventToWebClients(sessionId, controlResponse);
+
+      // Enter plan mode: send /plan slash command to CLI
+      if (newMode === "plan" && previousMode !== "plan") {
+        sendSlashPlanToCliSession(sessionId, sessionManager, connectionManager);
+      } else if (newMode !== "plan" && previousMode === "plan") {
+        sendExitPlanModePrompt(sessionId, sessionManager, connectionManager);
+      }
+
+      res.json({ status: "sent", request_id: requestId });
+      return;
+    }
+
     const controlRequest: any = {
       type: "control_request",
       request_id: requestId,
-      request: { subtype, model, max_thinking_tokens },
+      request: { subtype, model, max_thinking_tokens, mode },
       session_id: sessionId,
     };
 

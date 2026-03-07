@@ -44,6 +44,7 @@ export interface Message {
     request_id?: string;
     mcp_server_name?: string;
     message?: string;
+    mode?: string;
     requested_schema?: {
       properties?: Record<string, {
         title?: string;
@@ -67,6 +68,7 @@ export interface Message {
       action?: string;
       content?: unknown;
       updatedInput?: unknown;
+      mode?: string;
     };
   };
 }

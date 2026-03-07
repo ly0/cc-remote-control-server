@@ -55,6 +55,17 @@ export class SessionManager {
     return false;
   }
 
+  updatePermissionMode(sessionId: string, mode: string): { updated: boolean; previousMode?: string } {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      const previousMode = session.permissionMode || "default";
+      session.permissionMode = mode;
+      logger.info(TAG, `Updated permission mode for session ${sessionId} from ${previousMode} to ${mode}`);
+      return { updated: true, previousMode };
+    }
+    return { updated: false };
+  }
+
   addMessage(sessionId: string, message: SessionMessage): void {
     const session = this.sessions.get(sessionId);
     if (session) {

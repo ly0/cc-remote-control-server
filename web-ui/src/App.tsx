@@ -9,13 +9,30 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Environment, Session, Message, WebSocketMessage } from '@/types';
 import { api, createSession } from '@/api';
-import { Computer, Send, CircleStop, Sun, Moon } from 'lucide-react';
+import { Computer, Send, CircleStop, Sun, Moon, Shield, ShieldCheck, ShieldOff, BookOpen, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
+import { usePermissionMode, type PermissionMode } from '@/hooks/usePermissionMode';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import { buildCrossMessageToolResultMap } from '@/components/message/useToolResultMap';
 import { useTaskState } from '@/hooks/useTaskState';
 import { useGroupedMessages, type RenderItem } from '@/hooks/useGroupedMessages';
 import { useSessionRouter } from '@/hooks/useSessionRouter';
 import { TaskPanel } from '@/components/TaskPanel';
+
+const MODE_CONFIGS: Record<PermissionMode, { label: string; icon: typeof Shield; colorClass: string }> = {
+  default: { label: 'Default', icon: Shield, colorClass: 'text-primary' },
+  acceptEdits: { label: 'Accept Edits', icon: ShieldCheck, colorClass: 'text-success' },
+  plan: { label: 'Plan Mode', icon: BookOpen, colorClass: 'text-warning' },
+  bypassPermissions: { label: 'Bypass', icon: ShieldOff, colorClass: 'text-destructive' },
+};
 
 function App() {
   // State
@@ -395,6 +412,9 @@ function App() {
   // Task state
   const taskState = useTaskState(messages);
 
+  // Permission mode
+  const { permissionMode, setPermissionMode, isChanging: isPermissionChanging } = usePermissionMode(messages, currentSessionId);
+
   // Get current session
   const currentSession = sessions.find((s) => s.id === currentSessionId);
 
@@ -426,6 +446,34 @@ function App() {
                     <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${cliConnected ? 'bg-success' : 'bg-muted-foreground'}`} />
                     {cliConnected ? 'CLI Connected' : 'CLI Disconnected'}
                   </Badge>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" disabled={isPermissionChanging} className="gap-1.5">
+                        {(() => {
+                          const config = MODE_CONFIGS[permissionMode];
+                          const Icon = config.icon;
+                          return <Icon className={`w-4 h-4 ${config.colorClass}`} />;
+                        })()}
+                        <span className="hidden sm:inline">{MODE_CONFIGS[permissionMode].label}</span>
+                        <ChevronDown className="w-3 h-3 opacity-50" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Permission Mode</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuRadioGroup value={permissionMode} onValueChange={(v) => setPermissionMode(v as PermissionMode)}>
+                        {(Object.entries(MODE_CONFIGS) as [PermissionMode, typeof MODE_CONFIGS[PermissionMode]][]).map(([mode, config]) => {
+                          const Icon = config.icon;
+                          return (
+                            <DropdownMenuRadioItem key={mode} value={mode}>
+                              <Icon className={`w-4 h-4 ${config.colorClass}`} />
+                              {config.label}
+                            </DropdownMenuRadioItem>
+                          );
+                        })}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="sm" onClick={toggleTheme} className="w-8 h-8 p-0">

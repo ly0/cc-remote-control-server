@@ -7,6 +7,43 @@ import { logger } from "./utils/logger";
 
 const TAG = "main";
 
+const PLAN_MODE_EXIT_PROMPT = `<system-reminder>
+The user has exited plan mode from the UI. Call ExitPlanMode immediately to confirm the exit. Do not add any commentary.
+</system-reminder>`;
+
+function sendSlashPlanToCliSession(sessionId: string) {
+  const msg = {
+    type: "user" as const,
+    message: {
+      role: "user" as const,
+      content: [{ type: "text", text: "/plan" }],
+    },
+    session_id: sessionId,
+    uuid: uuidv4(),
+    timestamp: Date.now(),
+  };
+  ctx.sessionManager.addMessage(sessionId, msg);
+  ctx.connectionManager.sendRawToCliSession(sessionId, msg);
+  ctx.connectionManager.sendEventToWebClients(sessionId, msg);
+}
+
+function sendExitPlanModePrompt(sessionId: string) {
+  const msg = {
+    type: "user" as const,
+    message: {
+      role: "user" as const,
+      content: [{ type: "text", text: PLAN_MODE_EXIT_PROMPT }],
+    },
+    session_id: sessionId,
+    uuid: uuidv4(),
+    isMeta: true,
+    timestamp: Date.now(),
+  };
+  ctx.sessionManager.addMessage(sessionId, msg);
+  ctx.connectionManager.sendRawToCliSession(sessionId, msg);
+  ctx.connectionManager.sendEventToWebClients(sessionId, msg);
+}
+
 const { app, ctx } = createApp();
 const server = http.createServer(app);
 
@@ -76,6 +113,52 @@ function handleCliWebSocket(sessionId: string, ws: WebSocket) {
       // CLI may send keep_alive messages
       if (parsed.type === "keep_alive") {
         return;
+      }
+
+      // Auto-respond to can_use_tool based on permissionMode
+      if (parsed.type === "control_request" && parsed.request?.subtype === "can_use_tool") {
+        const session = ctx.sessionManager.get(sessionId);
+        const mode = session?.permissionMode || "default";
+
+        let autoAllow = false;
+        if (mode === "bypassPermissions") {
+          autoAllow = true;
+        } else if (mode === "acceptEdits") {
+          const editTools = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
+          if (editTools.has(parsed.request?.tool_name)) {
+            autoAllow = true;
+          }
+        }
+
+        // Always auto-approve plan mode toggle tools (no side effects, safe to allow)
+        const planModeTools = new Set(["ExitPlanMode", "EnterPlanMode"]);
+        if (planModeTools.has(parsed.request?.tool_name)) {
+          autoAllow = true;
+        }
+
+        if (autoAllow) {
+          const autoResponse = {
+            type: "control_response",
+            response: {
+              subtype: "success",
+              request_id: parsed.request_id,
+              response: { behavior: "allow" },
+            },
+            session_id: sessionId,
+          };
+          ctx.connectionManager.sendRawToCliSession(sessionId, autoResponse);
+
+          // Still store and forward to web for visibility
+          const message = { ...parsed, timestamp: Date.now() };
+          ctx.sessionManager.addMessage(sessionId, message);
+          ctx.connectionManager.sendEventToWebClients(sessionId, message);
+          return;
+        }
+      }
+
+      // Extract permissionMode from system/init events
+      if (parsed.type === "system" && parsed.subtype === "init" && parsed.permissionMode) {
+        ctx.sessionManager.updatePermissionMode(sessionId, parsed.permissionMode);
       }
 
       // Store and forward to web clients
@@ -174,6 +257,37 @@ function handleWebWebSocket(sessionId: string, ws: WebSocket) {
 
       // Web client sends control
       if (parsed.type === "control") {
+        // Intercept set_permission_mode — handle server-side
+        if (parsed.request?.subtype === "set_permission_mode") {
+          const session = ctx.sessionManager.get(sessionId);
+          if (session) {
+            const requestId = uuidv4();
+            const newMode = parsed.request.mode || "default";
+            const { previousMode } = ctx.sessionManager.updatePermissionMode(sessionId, newMode);
+            const controlResponse = {
+              type: "control_response",
+              response: {
+                subtype: "success",
+                request_id: requestId,
+                response: { mode: session.permissionMode },
+              },
+              session_id: sessionId,
+              uuid: uuidv4(),
+              timestamp: Date.now(),
+            };
+            ctx.sessionManager.addMessage(sessionId, controlResponse);
+            ctx.connectionManager.sendEventToWebClients(sessionId, controlResponse);
+
+            // Enter plan mode: send /plan slash command to CLI
+            if (newMode === "plan" && previousMode !== "plan") {
+              sendSlashPlanToCliSession(sessionId);
+            } else if (newMode !== "plan" && previousMode === "plan") {
+              sendExitPlanModePrompt(sessionId);
+            }
+          }
+          return;
+        }
+
         const controlRequest = {
           type: "control_request",
           request_id: uuidv4(),
