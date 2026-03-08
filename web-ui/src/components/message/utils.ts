@@ -46,6 +46,24 @@ export function isCliInternalContent(text: string): boolean {
   return text.trim().length > 0 && text.replace(CLI_INTERNAL_TAG_RE, '').trim() === '';
 }
 
+const SYSTEM_REMINDER_RE = /<system-reminder>\s*([\s\S]*?)\s*<\/system-reminder>/g;
+
+/** 检测文本是否完全由 <system-reminder> 标签包裹 */
+export function isSystemReminderOnly(text: string): boolean {
+  return text.trim().length > 0 && text.replace(SYSTEM_REMINDER_RE, '').trim() === '';
+}
+
+/** 提取 <system-reminder> 标签内的文本内容 */
+export function extractSystemReminderContent(text: string): string {
+  const parts: string[] = [];
+  let match: RegExpExecArray | null;
+  const re = new RegExp(SYSTEM_REMINDER_RE.source, 'g');
+  while ((match = re.exec(text)) !== null) {
+    if (match[1].trim()) parts.push(match[1].trim());
+  }
+  return parts.join('\n\n');
+}
+
 export function extractToolResultText(event: Message): string {
   if (!event.message) return '';
   const content = event.message.content;

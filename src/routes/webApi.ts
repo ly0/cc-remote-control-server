@@ -288,8 +288,7 @@ export function createWebApiRoutes(
 
     const requestId = uuidv4();
 
-    // Intercept set_permission_mode — REPL bridge doesn't support it,
-    // so we handle it server-side and synthesize a control_response.
+    // Intercept set_permission_mode
     if (subtype === "set_permission_mode") {
       const session = sessionManager.get(sessionId);
       if (!session) {
@@ -297,7 +296,35 @@ export function createWebApiRoutes(
         return;
       }
       const newMode = mode || "default";
-      const { previousMode } = sessionManager.updatePermissionMode(sessionId, newMode);
+      const previousMode = session.permissionMode || "default";
+
+      if (config.experimentalSetPermissionMode) {
+        // Forward mode: send control_request to CLI, let CLI handle it
+        const controlRequest: any = {
+          type: "control_request",
+          request_id: requestId,
+          request: { subtype: "set_permission_mode", mode: newMode },
+          session_id: sessionId,
+        };
+        const sent = connectionManager.sendRawToCliSession(sessionId, controlRequest);
+
+        // Plan mode transitions are always handled by server
+        if (newMode === "plan" && previousMode !== "plan") {
+          sendSlashPlanToCliSession(sessionId, sessionManager, connectionManager);
+        } else if (newMode !== "plan" && previousMode === "plan") {
+          sendExitPlanModePrompt(sessionId, sessionManager, connectionManager);
+        }
+
+        if (sent) {
+          res.json({ status: "sent", request_id: requestId });
+        } else {
+          res.status(503).json({ error: "CLI not connected" });
+        }
+        return;
+      }
+
+      // Server-side mode: handle locally and synthesize response
+      sessionManager.updatePermissionMode(sessionId, newMode);
       const controlResponse = {
         type: "control_response",
         response: {
@@ -312,7 +339,7 @@ export function createWebApiRoutes(
       sessionManager.addMessage(sessionId, controlResponse);
       connectionManager.sendEventToWebClients(sessionId, controlResponse);
 
-      // Enter plan mode: send /plan slash command to CLI
+      // Plan mode transitions
       if (newMode === "plan" && previousMode !== "plan") {
         sendSlashPlanToCliSession(sessionId, sessionManager, connectionManager);
       } else if (newMode !== "plan" && previousMode === "plan") {
@@ -395,6 +422,109 @@ export function createWebApiRoutes(
     } else {
       res.status(503).json({ error: "CLI not connected" });
     }
+  });
+
+  /**
+   * POST /api/sessions/:sessionId/plan-approval — Respond to ExitPlanMode plan approval
+   */
+  router.post("/api/sessions/:sessionId/plan-approval", (req, res) => {
+    const { sessionId } = req.params;
+    const { action, mode, clearContext, planContent, feedback, request_id } = req.body;
+
+    const session = sessionManager.get(sessionId);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+
+    if (action === "approve") {
+      // Update permission mode
+      const newMode = mode || "default";
+      sessionManager.updatePermissionMode(sessionId, newMode);
+
+      // Broadcast mode change
+      const controlResponse = {
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id,
+          response: { mode: newMode },
+        },
+        session_id: sessionId,
+        uuid: uuidv4(),
+        timestamp: Date.now(),
+      };
+      sessionManager.addMessage(sessionId, controlResponse);
+      connectionManager.sendEventToWebClients(sessionId, controlResponse);
+
+      if (clearContext && planContent) {
+        // Send "Implement the following plan" message
+        const implementMsg = {
+          type: "user" as const,
+          message: {
+            role: "user" as const,
+            content: [{ type: "text", text: `Implement the following plan:\n\n${planContent}` }],
+          },
+          session_id: sessionId,
+          uuid: uuidv4(),
+          timestamp: Date.now(),
+        };
+        sessionManager.addMessage(sessionId, implementMsg);
+        connectionManager.sendRawToCliSession(sessionId, implementMsg);
+        connectionManager.sendEventToWebClients(sessionId, implementMsg);
+      }
+    } else if (action === "reject") {
+      // Switch back to plan mode
+      sessionManager.updatePermissionMode(sessionId, "plan");
+      const controlResponse = {
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id,
+          response: { mode: "plan" },
+        },
+        session_id: sessionId,
+        uuid: uuidv4(),
+        timestamp: Date.now(),
+      };
+      sessionManager.addMessage(sessionId, controlResponse);
+      connectionManager.sendEventToWebClients(sessionId, controlResponse);
+
+      // Send EnterPlanMode prompt
+      const planPrompt = {
+        type: "user" as const,
+        message: {
+          role: "user" as const,
+          content: [{ type: "text", text: `<system-reminder>\nThe user has rejected the plan and wants to continue planning. Call EnterPlanMode immediately to re-enter plan mode.\n</system-reminder>` }],
+        },
+        isMeta: true,
+        session_id: sessionId,
+        uuid: uuidv4(),
+        timestamp: Date.now(),
+      };
+      sessionManager.addMessage(sessionId, planPrompt);
+      connectionManager.sendRawToCliSession(sessionId, planPrompt);
+      connectionManager.sendEventToWebClients(sessionId, planPrompt);
+
+      // Send user feedback if provided
+      if (feedback) {
+        const feedbackMsg = {
+          type: "user" as const,
+          message: {
+            role: "user" as const,
+            content: [{ type: "text", text: feedback }],
+          },
+          session_id: sessionId,
+          uuid: uuidv4(),
+          timestamp: Date.now(),
+        };
+        sessionManager.addMessage(sessionId, feedbackMsg);
+        connectionManager.sendRawToCliSession(sessionId, feedbackMsg);
+        connectionManager.sendEventToWebClients(sessionId, feedbackMsg);
+      }
+    }
+
+    res.json({ status: "ok" });
   });
 
   // GET /api/status — Server status

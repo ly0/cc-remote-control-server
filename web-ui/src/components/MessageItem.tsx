@@ -8,8 +8,10 @@ import {
   ControlRequest,
   ControlResponse,
   CompactSummary,
+  SystemReminderBanner,
+  DebugMessage,
 } from '@/components/message';
-import { extractText, isCliInternalContent } from '@/components/message/utils';
+import { extractText, isCliInternalContent, isSystemReminderOnly } from '@/components/message/utils';
 
 interface MessageItemProps {
   event: Message;
@@ -18,6 +20,8 @@ interface MessageItemProps {
   answeredRequestIds?: Map<string, Record<string, unknown>>;
   onPermissionResponse?: (requestId: string, approved: boolean, updatedInput?: unknown) => void;
   onElicitationResponse?: (requestId: string, action: 'accept' | 'decline', content?: Record<string, unknown>) => void;
+  onPlanApproval?: (requestId: string, action: 'approve' | 'reject', mode?: string, clearContext?: boolean, planContent?: string, feedback?: string) => void;
+  debugMode?: boolean;
 }
 
 /**
@@ -36,12 +40,16 @@ interface MessageItemProps {
  * - keep_alive: Heartbeat messages
  * - connection_status: WebSocket connection status (handled separately)
  */
-export function MessageItem({ event, events, externalToolResults, answeredRequestIds, onPermissionResponse, onElicitationResponse }: MessageItemProps) {
+export function MessageItem({ event, events, externalToolResults, answeredRequestIds, onPermissionResponse, onElicitationResponse, onPlanApproval, debugMode }: MessageItemProps) {
   switch (event.type) {
     case 'user': {
       const text = extractText(event);
       if (isCliInternalContent(text)) {
+        if (debugMode) return <DebugMessage label="cli_internal" event={event} />;
         return null;
+      }
+      if (isSystemReminderOnly(text)) {
+        return <SystemReminderBanner event={event} />;
       }
       if (event.isSynthetic) {
         return <CompactSummary event={event} />;
@@ -56,7 +64,7 @@ export function MessageItem({ event, events, externalToolResults, answeredReques
       return <SystemMessage event={event} />;
 
     case 'result':
-      return <ErrorMessage event={event} />;
+      return <ErrorMessage event={event} debugMode={debugMode} />;
 
     case 'control_request':
       return (
@@ -65,6 +73,7 @@ export function MessageItem({ event, events, externalToolResults, answeredReques
           answeredRequestIds={answeredRequestIds}
           onPermissionResponse={onPermissionResponse}
           onElicitationResponse={onElicitationResponse}
+          onPlanApproval={onPlanApproval}
         />
       );
 
@@ -75,12 +84,13 @@ export function MessageItem({ event, events, externalToolResults, answeredReques
       return <ThinkingIndicator timestamp={event.timestamp} />;
 
     case 'keep_alive':
-      // Hidden message types
+      if (debugMode) return <DebugMessage label="keep_alive" event={event} />;
       return null;
 
     default:
       // Unknown message type - log for debugging but don't crash
       console.warn('[MessageItem] Unknown message type:', event.type, event);
+      if (debugMode) return <DebugMessage label="unknown" event={event} />;
       return null;
   }
 }

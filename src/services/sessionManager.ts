@@ -4,8 +4,14 @@ import { logger } from "../utils/logger";
 
 const TAG = "session";
 
+interface PendingPlanApproval {
+  toolUseId: string;
+  planFilePath?: string;
+}
+
 export class SessionManager {
   private sessions = new Map<string, Session>();
+  private pendingPlanApprovals = new Map<string, PendingPlanApproval>();
 
   create(req: CreateSessionRequest): Session {
     const id = uuidv4();
@@ -93,5 +99,18 @@ export class SessionManager {
 
   getAll(): Session[] {
     return Array.from(this.sessions.values());
+  }
+
+  setPendingPlanApproval(sessionId: string, data: PendingPlanApproval): void {
+    this.pendingPlanApprovals.set(sessionId, data);
+    logger.info(TAG, `Set pending plan approval for session ${sessionId}, toolUseId=${data.toolUseId}`);
+  }
+
+  getPendingPlanApproval(sessionId: string): PendingPlanApproval | undefined {
+    return this.pendingPlanApprovals.get(sessionId);
+  }
+
+  clearPendingPlanApproval(sessionId: string): void {
+    this.pendingPlanApprovals.delete(sessionId);
   }
 }

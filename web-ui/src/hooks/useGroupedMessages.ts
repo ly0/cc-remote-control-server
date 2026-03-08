@@ -15,6 +15,7 @@ export interface RenderItem {
 export function useGroupedMessages(
   messages: Message[],
   hiddenIndices: Set<number>,
+  debugMode?: boolean,
 ): RenderItem[] {
   return useMemo(() => {
     const items: RenderItem[] = [];
@@ -41,7 +42,7 @@ export function useGroupedMessages(
     };
 
     for (let i = 0; i < messages.length; i++) {
-      if (hiddenIndices.has(i)) continue;
+      if (!debugMode && hiddenIndices.has(i)) continue;
       const msg = messages[i];
 
       if (msg.type === 'assistant') {
@@ -64,5 +65,5 @@ export function useGroupedMessages(
     flushGroup();
 
     return items;
-  }, [messages, hiddenIndices]);
+  }, [messages, hiddenIndices, debugMode]);
 }

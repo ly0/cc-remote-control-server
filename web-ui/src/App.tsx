@@ -9,8 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Environment, Session, Message, WebSocketMessage } from '@/types';
 import { api, createSession } from '@/api';
-import { Computer, Send, CircleStop, Sun, Moon, Shield, ShieldCheck, ShieldOff, BookOpen, ChevronDown } from 'lucide-react';
+import { Computer, Send, CircleStop, Sun, Moon, Shield, ShieldCheck, ShieldOff, BookOpen, ChevronDown, Settings2 } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
+import { useDebugMode } from '@/hooks/useDebugMode';
 import { usePermissionMode, type PermissionMode } from '@/hooks/usePermissionMode';
 import {
   DropdownMenu,
@@ -20,6 +21,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
 import { buildCrossMessageToolResultMap } from '@/components/message/useToolResultMap';
 import { useTaskState } from '@/hooks/useTaskState';
@@ -290,6 +292,26 @@ function App() {
     });
   }, [currentSessionId]);
 
+  // Handle plan approval response
+  const handlePlanApproval = useCallback(async (
+    requestId: string,
+    action: 'approve' | 'reject',
+    mode?: string,
+    clearContext?: boolean,
+    planContent?: string,
+    feedback?: string,
+  ) => {
+    if (!currentSessionId) return;
+    await api('POST', `/sessions/${currentSessionId}/plan-approval`, {
+      request_id: requestId,
+      action,
+      mode,
+      clearContext,
+      planContent,
+      feedback,
+    });
+  }, [currentSessionId]);
+
   // Handle elicitation response
   const handleElicitationResponse = useCallback((requestId: string, action: 'accept' | 'decline', content?: Record<string, unknown>) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -330,8 +352,11 @@ function App() {
     [messages]
   );
 
+  // Debug mode
+  const { debugMode, setDebugMode } = useDebugMode();
+
   // Group consecutive assistant messages for merged rendering
-  const renderItems = useGroupedMessages(messages, hiddenIndices);
+  const renderItems = useGroupedMessages(messages, hiddenIndices, debugMode);
 
   // Collect request_ids that have been answered (via control_response), with response data
   const answeredRequestIds = useMemo(() => {
@@ -386,6 +411,8 @@ function App() {
           answeredRequestIds={answeredRequestIds}
           onPermissionResponse={handlePermissionResponse}
           onElicitationResponse={handleElicitationResponse}
+          onPlanApproval={handlePlanApproval}
+          debugMode={debugMode}
         />
       );
     }
@@ -399,9 +426,11 @@ function App() {
         answeredRequestIds={answeredRequestIds}
         onPermissionResponse={handlePermissionResponse}
         onElicitationResponse={handleElicitationResponse}
+        onPlanApproval={handlePlanApproval}
+        debugMode={debugMode}
       />
     );
-  }, [toolResultsByIndex, answeredRequestIds, handlePermissionResponse, handleElicitationResponse]);
+  }, [toolResultsByIndex, answeredRequestIds, handlePermissionResponse, handleElicitationResponse, handlePlanApproval, debugMode]);
 
   // Theme
   const { resolvedTheme, setTheme } = useTheme();
@@ -472,6 +501,20 @@ function App() {
                           );
                         })}
                       </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="w-8 h-8 p-0">
+                        <Settings2 className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Settings</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuCheckboxItem checked={debugMode} onCheckedChange={setDebugMode}>
+                        Debug Mode
+                      </DropdownMenuCheckboxItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <Tooltip>

@@ -45,6 +45,8 @@ export interface Message {
     mcp_server_name?: string;
     message?: string;
     mode?: string;
+    plan_content?: string;
+    plan_file_path?: string;
     requested_schema?: {
       properties?: Record<string, {
         title?: string;
@@ -57,6 +59,7 @@ export interface Message {
   request_id?: string;
   is_error?: boolean;
   isSynthetic?: boolean;
+  isMeta?: boolean;
   result?: string;
   state?: string;
   events?: EventMessage[];
@@ -83,6 +86,7 @@ export interface Question {
   options: {
     label: string;
     description?: string;
+    preview?: string;
   }[];
   multiSelect?: boolean;
 }

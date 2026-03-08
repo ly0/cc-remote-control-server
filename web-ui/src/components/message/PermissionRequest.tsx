@@ -49,30 +49,13 @@ export function PermissionRequest({ event, isAlreadyAnswered, responseData, onPe
     onPermissionResponse?.(requestId || '', approved);
   };
 
-  return (
-    <Card className={`p-4 border-warning/30 bg-warning/10 ${answered ? 'opacity-60 pointer-events-none' : ''}`}>
-      <div className="flex items-center gap-2 mb-2">
+  if (answered) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-1.5 text-sm text-muted-foreground">
         <AlertCircle className="w-4 h-4 text-warning" />
-        <span className="font-semibold text-sm">Permission Required</span>
-      </div>
-      <Badge variant="secondary" className="mb-2 font-mono">{toolName}</Badge>
-      <div className="mb-3">
-        <ToolInputDisplay toolName={toolName} input={rawInput} />
-      </div>
-      {!answered && (
-        <div className="flex gap-2">
-          <Button size="sm" onClick={() => handleResponse(true)}>
-            <CheckCircle className="w-4 h-4 mr-1" />
-            Allow
-          </Button>
-          <Button size="sm" variant="destructive" onClick={() => handleResponse(false)}>
-            <XCircle className="w-4 h-4 mr-1" />
-            Deny
-          </Button>
-        </div>
-      )}
-      {answered && (
-        behavior === 'deny' ? (
+        <Badge variant="secondary" className="font-mono">{toolName}</Badge>
+        <span>—</span>
+        {behavior === 'deny' ? (
           <Badge variant="outline" className="text-destructive border-destructive">
             <XCircle className="w-3 h-3 mr-1" />
             Denied
@@ -87,8 +70,31 @@ export function PermissionRequest({ event, isAlreadyAnswered, responseData, onPe
             <CheckCircle className="w-3 h-3 mr-1" />
             Responded
           </Badge>
-        )
-      )}
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Card className="p-4 border-warning/30 bg-warning/10">
+      <div className="flex items-center gap-2 mb-2">
+        <AlertCircle className="w-4 h-4 text-warning" />
+        <span className="font-semibold text-sm">Permission Required</span>
+      </div>
+      <Badge variant="secondary" className="mb-2 font-mono">{toolName}</Badge>
+      <div className="mb-3">
+        <ToolInputDisplay toolName={toolName} input={rawInput} />
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={() => handleResponse(true)}>
+          <CheckCircle className="w-4 h-4 mr-1" />
+          Allow
+        </Button>
+        <Button size="sm" variant="destructive" onClick={() => handleResponse(false)}>
+          <XCircle className="w-4 h-4 mr-1" />
+          Deny
+        </Button>
+      </div>
     </Card>
   );
 }

@@ -37,8 +37,34 @@ export function Elicitation({ event, isAlreadyAnswered, responseData, onElicitat
     onElicitationResponse?.(requestId || '', submitAction, submitAction === 'accept' ? formData : {});
   };
 
+  if (responded) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-1.5 text-sm text-muted-foreground">
+        <Terminal className="w-4 h-4 text-warning" />
+        <Badge variant="secondary">{serverName}</Badge>
+        <span>—</span>
+        {action === 'decline' ? (
+          <Badge variant="outline" className="text-destructive border-destructive">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Declined
+          </Badge>
+        ) : action === 'accept' ? (
+          <Badge variant="outline" className="text-success border-success">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Accepted
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-success border-success">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Responded
+          </Badge>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <Card className={`p-4 border-warning/30 bg-warning/5 ${responded ? 'opacity-60 pointer-events-none' : ''}`}>
+    <Card className="p-4 border-warning/30 bg-warning/5">
       <div className="flex items-center gap-2 mb-2">
         <Terminal className="w-4 h-4 text-warning" />
         <span className="font-semibold text-sm">MCP Input Request</span>
@@ -95,34 +121,14 @@ export function Elicitation({ event, isAlreadyAnswered, responseData, onElicitat
         </div>
       )}
 
-      {!responded && (
-        <div className="flex gap-2">
-          <Button size="sm" onClick={() => handleSubmit('accept')}>
-            Accept
-          </Button>
-          <Button size="sm" variant="destructive" onClick={() => handleSubmit('decline')}>
-            Decline
-          </Button>
-        </div>
-      )}
-      {responded && (
-        action === 'decline' ? (
-          <Badge variant="outline" className="text-destructive border-destructive">
-            <CheckCircle className="w-3 h-3 mr-1" />
-            Declined
-          </Badge>
-        ) : action === 'accept' ? (
-          <Badge variant="outline" className="text-success border-success">
-            <CheckCircle className="w-3 h-3 mr-1" />
-            Accepted
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-success border-success">
-            <CheckCircle className="w-3 h-3 mr-1" />
-            Responded
-          </Badge>
-        )
-      )}
+      <div className="flex gap-2">
+        <Button size="sm" onClick={() => handleSubmit('accept')}>
+          Accept
+        </Button>
+        <Button size="sm" variant="destructive" onClick={() => handleSubmit('decline')}>
+          Decline
+        </Button>
+      </div>
     </Card>
   );
 }

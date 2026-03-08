@@ -1,14 +1,18 @@
 import { formatTime } from './utils';
 import type { Message } from '@/types';
 import { Avatar } from './Avatar';
+import { DebugMessage } from './DebugMessage';
 
 interface ErrorMessageProps {
   event: Message;
+  debugMode?: boolean;
 }
 
-export function ErrorMessage({ event }: ErrorMessageProps) {
-  // Only show errors
-  if (!event.is_error) return null;
+export function ErrorMessage({ event, debugMode }: ErrorMessageProps) {
+  if (!event.is_error) {
+    if (debugMode) return <DebugMessage label="result" event={event} />;
+    return null;
+  }
 
   return (
     <div className="flex gap-3 mb-4 px-4 py-2 hover:bg-muted/30">

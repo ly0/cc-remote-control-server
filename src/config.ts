@@ -10,4 +10,10 @@ export const config = {
 
   // WebSocket ping interval
   wsPingIntervalMs: 30000,
+
+  // When enabled, forward set_permission_mode to CLI instead of handling server-side.
+  // Requires CLI to be patched with scripts/patch-cli-set-mode.js.
+  experimentalSetPermissionMode:
+    process.env.EXPERIMENTAL_SET_PERMISSION_MODE === "true" ||
+    process.argv.includes("--experimental-set-permission-mode"),
 };

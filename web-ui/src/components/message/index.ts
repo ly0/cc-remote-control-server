@@ -9,4 +9,7 @@ export { ControlRequest } from './ControlRequest';
 export { ControlResponse } from './ControlResponse';
 export { MarkdownRenderer } from './MarkdownRenderer';
 export { CompactSummary } from './CompactSummary';
+export { SystemReminderBanner } from './SystemReminderBanner';
+export { PlanApprovalCard } from './PlanApprovalCard';
+export { DebugMessage } from './DebugMessage';
 export * from './utils';

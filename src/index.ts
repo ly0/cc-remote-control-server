@@ -156,9 +156,61 @@ function handleCliWebSocket(sessionId: string, ws: WebSocket) {
         }
       }
 
-      // Extract permissionMode from system/init events
-      if (parsed.type === "system" && parsed.subtype === "init" && parsed.permissionMode) {
+      // Extract permissionMode from system/init and system/status events
+      if (parsed.type === "system" && (parsed.subtype === "init" || parsed.subtype === "status") && parsed.permissionMode) {
         ctx.sessionManager.updatePermissionMode(sessionId, parsed.permissionMode);
+      }
+
+      // Detect ExitPlanMode tool_use in assistant messages
+      if (parsed.type === 'assistant' && Array.isArray(parsed.message?.content)) {
+        const exitPlanBlock = parsed.message.content.find(
+          (b: any) => b.type === 'tool_use' && b.name === 'ExitPlanMode'
+        );
+        if (exitPlanBlock) {
+          ctx.sessionManager.setPendingPlanApproval(sessionId, {
+            toolUseId: exitPlanBlock.id,
+            planFilePath: exitPlanBlock.input?.planFilePath,
+          });
+        }
+      }
+
+      // Detect ExitPlanMode tool_result and emit plan_approval control_request
+      if (parsed.type === 'result' || (parsed.type === 'user' && Array.isArray(parsed.message?.content))) {
+        const pending = ctx.sessionManager.getPendingPlanApproval(sessionId);
+        if (pending) {
+          const contentArr = Array.isArray(parsed.message?.content) ? parsed.message.content : [];
+          const resultBlock = contentArr.find(
+            (b: any) => b.tool_use_id === pending.toolUseId
+          );
+
+          if (resultBlock) {
+            let planContent: string | undefined;
+            try {
+              const raw = resultBlock.content;
+              const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+              planContent = obj?.plan;
+            } catch {
+              // plan content extraction failed, leave undefined
+            }
+
+            const approvalRequestId = `plan-approval-${Date.now()}`;
+            const approvalEvent = {
+              type: 'control_request',
+              request: {
+                subtype: 'plan_approval',
+                request_id: approvalRequestId,
+                plan_content: planContent,
+                plan_file_path: pending.planFilePath,
+              },
+              request_id: approvalRequestId,
+              session_id: sessionId,
+              timestamp: Date.now(),
+            };
+            ctx.sessionManager.addMessage(sessionId, approvalEvent);
+            ctx.connectionManager.sendEventToWebClients(sessionId, approvalEvent);
+            ctx.sessionManager.clearPendingPlanApproval(sessionId);
+          }
+        }
       }
 
       // Store and forward to web clients
@@ -257,28 +309,42 @@ function handleWebWebSocket(sessionId: string, ws: WebSocket) {
 
       // Web client sends control
       if (parsed.type === "control") {
-        // Intercept set_permission_mode — handle server-side
+        // Intercept set_permission_mode
         if (parsed.request?.subtype === "set_permission_mode") {
           const session = ctx.sessionManager.get(sessionId);
           if (session) {
             const requestId = uuidv4();
             const newMode = parsed.request.mode || "default";
-            const { previousMode } = ctx.sessionManager.updatePermissionMode(sessionId, newMode);
-            const controlResponse = {
-              type: "control_response",
-              response: {
-                subtype: "success",
-                request_id: requestId,
-                response: { mode: session.permissionMode },
-              },
-              session_id: sessionId,
-              uuid: uuidv4(),
-              timestamp: Date.now(),
-            };
-            ctx.sessionManager.addMessage(sessionId, controlResponse);
-            ctx.connectionManager.sendEventToWebClients(sessionId, controlResponse);
+            const previousMode = session.permissionMode || "default";
 
-            // Enter plan mode: send /plan slash command to CLI
+            if (config.experimentalSetPermissionMode) {
+              // Forward mode: send control_request to CLI, let CLI handle it
+              const controlRequest = {
+                type: "control_request",
+                request_id: requestId,
+                request: { subtype: "set_permission_mode", mode: newMode },
+                session_id: sessionId,
+              };
+              ctx.connectionManager.sendRawToCliSession(sessionId, controlRequest);
+            } else {
+              // Server-side mode: handle locally and synthesize response
+              ctx.sessionManager.updatePermissionMode(sessionId, newMode);
+              const controlResponse = {
+                type: "control_response",
+                response: {
+                  subtype: "success",
+                  request_id: requestId,
+                  response: { mode: session.permissionMode },
+                },
+                session_id: sessionId,
+                uuid: uuidv4(),
+                timestamp: Date.now(),
+              };
+              ctx.sessionManager.addMessage(sessionId, controlResponse);
+              ctx.connectionManager.sendEventToWebClients(sessionId, controlResponse);
+            }
+
+            // Plan mode transitions are always handled by server
             if (newMode === "plan" && previousMode !== "plan") {
               sendSlashPlanToCliSession(sessionId);
             } else if (newMode !== "plan" && previousMode === "plan") {
