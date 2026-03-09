@@ -319,6 +319,7 @@ function handleWebWebSocket(sessionId: string, ws: WebSocket) {
 
             if (config.experimentalSetPermissionMode) {
               // Forward mode: send control_request to CLI, let CLI handle it
+              // CLI natively handles mode switching (like shift+tab), no extra commands needed
               const controlRequest = {
                 type: "control_request",
                 request_id: requestId,
@@ -342,13 +343,13 @@ function handleWebWebSocket(sessionId: string, ws: WebSocket) {
               };
               ctx.sessionManager.addMessage(sessionId, controlResponse);
               ctx.connectionManager.sendEventToWebClients(sessionId, controlResponse);
-            }
 
-            // Plan mode transitions are always handled by server
-            if (newMode === "plan" && previousMode !== "plan") {
-              sendSlashPlanToCliSession(sessionId);
-            } else if (newMode !== "plan" && previousMode === "plan") {
-              sendExitPlanModePrompt(sessionId);
+              // Plan mode transitions only in server-side mode
+              if (newMode === "plan" && previousMode !== "plan") {
+                sendSlashPlanToCliSession(sessionId);
+              } else if (newMode !== "plan" && previousMode === "plan") {
+                sendExitPlanModePrompt(sessionId);
+              }
             }
           }
           return;

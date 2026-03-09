@@ -12,6 +12,11 @@ export function usePermissionMode(messages: Message[], sessionId: string | null)
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
 
+      // Check system events with permissionMode (from CLI status updates via shift+tab etc.)
+      if (msg.type === 'system' && (msg as any).permissionMode) {
+        return (msg as any).permissionMode as PermissionMode;
+      }
+
       // Check control_response with mode
       if (msg.type === 'control_response') {
         const mode = (msg.response?.response as Record<string, unknown> | undefined)?.mode;

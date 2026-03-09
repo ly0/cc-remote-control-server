@@ -300,6 +300,7 @@ export function createWebApiRoutes(
 
       if (config.experimentalSetPermissionMode) {
         // Forward mode: send control_request to CLI, let CLI handle it
+        // CLI natively handles mode switching (like shift+tab), no extra commands needed
         const controlRequest: any = {
           type: "control_request",
           request_id: requestId,
@@ -307,13 +308,6 @@ export function createWebApiRoutes(
           session_id: sessionId,
         };
         const sent = connectionManager.sendRawToCliSession(sessionId, controlRequest);
-
-        // Plan mode transitions are always handled by server
-        if (newMode === "plan" && previousMode !== "plan") {
-          sendSlashPlanToCliSession(sessionId, sessionManager, connectionManager);
-        } else if (newMode !== "plan" && previousMode === "plan") {
-          sendExitPlanModePrompt(sessionId, sessionManager, connectionManager);
-        }
 
         if (sent) {
           res.json({ status: "sent", request_id: requestId });
