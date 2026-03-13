@@ -11,7 +11,26 @@ export class EnvironmentManager {
     environment_id: string;
     environment_secret: string;
   } {
-    const id = uuidv4();
+    // Support reusing an existing environment ID
+    if (req.environment_id && this.environments.has(req.environment_id)) {
+      const existing = this.environments.get(req.environment_id)!;
+      // Update fields
+      existing.machineName = req.machine_name;
+      existing.directory = req.directory;
+      existing.branch = req.branch;
+      existing.gitRepoUrl = req.git_repo_url;
+      existing.maxSessions = req.max_sessions;
+      existing.spawnMode = req.spawn_mode;
+      existing.metadata = req.metadata;
+      existing.registeredAt = Date.now();
+      logger.info(
+        TAG,
+        `Re-registered environment ${existing.id} (${req.machine_name}:${req.directory})`
+      );
+      return { environment_id: existing.id, environment_secret: existing.secret };
+    }
+
+    const id = req.environment_id || uuidv4();
     const secret = uuidv4();
     const env: Environment = {
       id,
@@ -20,6 +39,9 @@ export class EnvironmentManager {
       directory: req.directory,
       branch: req.branch,
       gitRepoUrl: req.git_repo_url,
+      maxSessions: req.max_sessions,
+      spawnMode: req.spawn_mode,
+      metadata: req.metadata,
       registeredAt: Date.now(),
     };
     this.environments.set(id, env);

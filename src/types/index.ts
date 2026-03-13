@@ -11,6 +11,9 @@ export interface Environment {
   gitRepoUrl?: string;
   registeredAt: number;
   lastPollAt?: number;
+  maxSessions?: number;
+  spawnMode?: string;
+  metadata?: { worker_type?: string; [key: string]: any };
 }
 
 export interface RegisterEnvironmentRequest {
@@ -18,6 +21,10 @@ export interface RegisterEnvironmentRequest {
   directory: string;
   branch?: string;
   git_repo_url?: string;
+  max_sessions?: number;
+  spawn_mode?: string;
+  metadata?: { worker_type?: string; [key: string]: any };
+  environment_id?: string; // Reuse existing environment ID
 }
 
 export interface RegisterEnvironmentResponse {
@@ -140,4 +147,14 @@ export interface LongPollRequest {
   res: Response;
   timer: ReturnType<typeof setTimeout>;
   abortController: AbortController;
+}
+
+// ─── CCR v2 Worker ──────────────────────────────────────
+
+export interface WorkerSession {
+  sessionId: string;
+  workerEpoch: number;
+  workerStatus: string;
+  externalMetadata?: any;
+  lastHeartbeatAt: number;
 }

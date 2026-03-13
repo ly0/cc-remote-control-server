@@ -9,7 +9,8 @@ const TAG = "route:session";
 
 export function createSessionRoutes(
   sessionManager: SessionManager,
-  workDispatcher: WorkDispatcher
+  workDispatcher: WorkDispatcher,
+  connectionManager?: import("../services/connectionManager").ConnectionManager
 ): Router {
   const router = Router();
 
@@ -84,6 +85,43 @@ export function createSessionRoutes(
     } else {
       res.status(404).json({ error: "Session not found" });
     }
+  });
+
+  // POST /v1/sessions/:sessionId/events — Send events to session (HTTP path)
+  router.post("/v1/sessions/:sessionId/events", (req, res) => {
+    const { sessionId } = req.params;
+    const { events } = req.body;
+
+    const session = sessionManager.get(sessionId);
+    if (!session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+
+    if (!events || !Array.isArray(events)) {
+      res.status(400).json({ error: "events array is required" });
+      return;
+    }
+
+    // Store events as messages
+    const timestampedEvents = events.map((e: any) => ({
+      ...e,
+      timestamp: e.timestamp || Date.now(),
+    }));
+    sessionManager.addMessages(sessionId, timestampedEvents);
+
+    // Forward to CLI WebSocket and web clients
+    if (connectionManager) {
+      // Forward to CLI
+      for (const event of timestampedEvents) {
+        connectionManager.sendRawToCliSession(sessionId, event);
+      }
+      // Forward to web clients
+      connectionManager.sendToWebClients(sessionId, timestampedEvents);
+    }
+
+    logger.info(TAG, `POST /v1/sessions/${sessionId}/events -> 200 (${events.length} events)`);
+    res.status(200).json({});
   });
 
   return router;

@@ -298,7 +298,7 @@ function App() {
     action: 'approve' | 'reject',
     mode?: string,
     clearContext?: boolean,
-    planContent?: string,
+    planFilePath?: string,
     feedback?: string,
   ) => {
     if (!currentSessionId) return;
@@ -307,7 +307,7 @@ function App() {
       action,
       mode,
       clearContext,
-      planContent,
+      plan_file_path: planFilePath,
       feedback,
     });
   }, [currentSessionId]);

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { SessionManager } from "../services/sessionManager";
 import type { ConnectionManager } from "../services/connectionManager";
+import type { EventProcessor } from "../services/eventProcessor";
 import type { IngressEventBatch, SessionMessage } from "../types";
 import { logger } from "../utils/logger";
 
@@ -8,7 +9,8 @@ const TAG = "route:ingress";
 
 export function createIngressRoutes(
   sessionManager: SessionManager,
-  connectionManager: ConnectionManager
+  connectionManager: ConnectionManager,
+  eventProcessor: EventProcessor
 ): Router {
   const router = Router();
 
@@ -16,7 +18,8 @@ export function createIngressRoutes(
    * POST /v2/session_ingress/session/:sessionId/events
    *
    * CLI sends events here via HybridTransport.
-   * We store messages and forward them to web clients.
+   * We process events for plan mode detection/auto-approval,
+   * then store messages and forward them to web clients.
    */
   router.post(
     "/v2/session_ingress/session/:sessionId/events",
@@ -35,11 +38,22 @@ export function createIngressRoutes(
         timestamp: e.timestamp || Date.now(),
       }));
 
-      // Store messages in session
-      sessionManager.addMessages(sessionId, timestampedEvents);
+      // Process each event for plan mode detection and auto-approval
+      const eventsToStoreAndForward: SessionMessage[] = [];
+      for (const event of timestampedEvents) {
+        const intercepted = eventProcessor.processCliEvent(sessionId, event);
+        if (!intercepted) {
+          // Not intercepted: needs normal store+forward
+          eventsToStoreAndForward.push(event);
+        }
+        // Intercepted events are already stored+forwarded by eventProcessor
+      }
 
-      // Forward to web clients
-      connectionManager.sendToWebClients(sessionId, timestampedEvents);
+      // Store and forward remaining (non-intercepted) events
+      if (eventsToStoreAndForward.length > 0) {
+        sessionManager.addMessages(sessionId, eventsToStoreAndForward);
+        connectionManager.sendToWebClients(sessionId, eventsToStoreAndForward);
+      }
 
       logger.debug(
         TAG,

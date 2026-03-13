@@ -1,3 +1,4 @@
+import fs from "fs";
 import { Router } from "express";
 import { v4 as uuidv4 } from "uuid";
 import type { EnvironmentManager } from "../services/environmentManager";
@@ -421,9 +422,9 @@ export function createWebApiRoutes(
   /**
    * POST /api/sessions/:sessionId/plan-approval — Respond to ExitPlanMode plan approval
    */
-  router.post("/api/sessions/:sessionId/plan-approval", (req, res) => {
+  router.post("/api/sessions/:sessionId/plan-approval", async (req, res) => {
     const { sessionId } = req.params;
-    const { action, mode, clearContext, planContent, feedback, request_id } = req.body;
+    const { action, mode, clearContext, feedback, request_id, plan_file_path } = req.body;
 
     const session = sessionManager.get(sessionId);
     if (!session) {
@@ -432,11 +433,109 @@ export function createWebApiRoutes(
     }
 
     if (action === "approve") {
-      // Update permission mode
       const newMode = mode || "default";
-      sessionManager.updatePermissionMode(sessionId, newMode);
 
-      // Broadcast mode change
+      // Wait for can_use_tool to arrive from CLI (race condition: plan_approval
+      // from assistant message detection may arrive before can_use_tool from Qiq)
+      let pending = sessionManager.getPendingPlanApproval(sessionId);
+      if (!pending) {
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 100));
+          pending = sessionManager.getPendingPlanApproval(sessionId);
+          if (pending) break;
+        }
+      }
+
+      const responseRequestId = pending?.canUseToolRequestId || uuidv4();
+
+      if (clearContext) {
+        // clearContext: CLI local flow calls onReject(), not onAllow()
+        // The sequence is: set mode → deny ExitPlanMode → send plan as user message
+        // CLI then restarts the conversation with the plan content.
+
+        // 1. Change mode via set_permission_mode control_request
+        const modeRequest = {
+          type: "control_request",
+          request_id: uuidv4(),
+          request: { subtype: "set_permission_mode", mode: newMode },
+          session_id: sessionId,
+        };
+        connectionManager.sendRawToCliSession(sessionId, modeRequest);
+
+        // 2. DENY ExitPlanMode (matching CLI's onReject behavior)
+        const denyResponse = {
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: responseRequestId,
+            response: { behavior: "deny", message: "Context cleared, implementing plan" },
+          },
+          session_id: sessionId,
+        };
+        connectionManager.sendRawToCliSession(sessionId, denyResponse);
+        logger.info(TAG, `Sent control_response (deny+clearContext) for ExitPlanMode, request_id=${responseRequestId}, had_pending=${!!pending}`);
+
+        // 3. Send plan as user message
+        const resolvedPlanPath = plan_file_path || pending?.planFilePath;
+        if (resolvedPlanPath) {
+          let planText = "";
+          try {
+            planText = fs.readFileSync(resolvedPlanPath, "utf-8");
+          } catch (e) {
+            logger.warn(TAG, `Failed to read plan file: ${resolvedPlanPath}`);
+          }
+          if (planText) {
+            const implementMsg = {
+              type: "user" as const,
+              message: {
+                role: "user" as const,
+                content: [{ type: "text", text: `Implement the following plan:\n\n${planText}` }],
+              },
+              session_id: sessionId,
+              uuid: uuidv4(),
+              timestamp: Date.now(),
+            };
+            sessionManager.addMessage(sessionId, implementMsg);
+            connectionManager.sendRawToCliSession(sessionId, implementMsg);
+            connectionManager.sendEventToWebClients(sessionId, implementMsg);
+          }
+        }
+      } else {
+        // Non-clearContext: "Auto-accept edits" / "Manually approve edits"
+        // Send clean allow (no updatedPermissions) — Map handler ignores it,
+        // and fallback path would TypeError on undefined second arg to onAllow.
+        const allowResponse = {
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: responseRequestId,
+            response: { behavior: "allow" },
+          },
+          session_id: sessionId,
+        };
+        connectionManager.sendRawToCliSession(sessionId, allowResponse);
+        logger.info(TAG, `Sent control_response (allow) for ExitPlanMode, request_id=${responseRequestId}, had_pending=${!!pending}`);
+
+        // ExitPlanMode.call() changes mode to prePlanMode (usually "default").
+        // Send set_permission_mode AFTER a delay to override to user's desired mode.
+        setTimeout(() => {
+          const modeRequest = {
+            type: "control_request",
+            request_id: uuidv4(),
+            request: { subtype: "set_permission_mode", mode: newMode },
+            session_id: sessionId,
+          };
+          connectionManager.sendRawToCliSession(sessionId, modeRequest);
+          logger.info(TAG, `Sent delayed set_permission_mode (${newMode}) after ExitPlanMode`);
+        }, 300);
+      }
+
+      if (pending) {
+        sessionManager.clearPendingPlanApproval(sessionId);
+      }
+
+      // Update server-side permission mode + notify WebUI
+      sessionManager.updatePermissionMode(sessionId, newMode);
       const controlResponse = {
         type: "control_response",
         response: {
@@ -450,25 +549,36 @@ export function createWebApiRoutes(
       };
       sessionManager.addMessage(sessionId, controlResponse);
       connectionManager.sendEventToWebClients(sessionId, controlResponse);
-
-      if (clearContext && planContent) {
-        // Send "Implement the following plan" message
-        const implementMsg = {
-          type: "user" as const,
-          message: {
-            role: "user" as const,
-            content: [{ type: "text", text: `Implement the following plan:\n\n${planContent}` }],
-          },
-          session_id: sessionId,
-          uuid: uuidv4(),
-          timestamp: Date.now(),
-        };
-        sessionManager.addMessage(sessionId, implementMsg);
-        connectionManager.sendRawToCliSession(sessionId, implementMsg);
-        connectionManager.sendEventToWebClients(sessionId, implementMsg);
-      }
     } else if (action === "reject") {
-      // Switch back to plan mode
+      // Wait for can_use_tool to arrive (same race condition as approve path)
+      let pending = sessionManager.getPendingPlanApproval(sessionId);
+      if (!pending) {
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 100));
+          pending = sessionManager.getPendingPlanApproval(sessionId);
+          if (pending) break;
+        }
+      }
+
+      // 1. Send control_response (deny) to dismiss CLI's "Ready to code?" prompt
+      const denyRequestId = pending?.canUseToolRequestId || uuidv4();
+      const denyResponse = {
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: denyRequestId,
+          response: { behavior: "deny", message: feedback || "User wants to continue planning" },
+        },
+        session_id: sessionId,
+      };
+      connectionManager.sendRawToCliSession(sessionId, denyResponse);
+      logger.info(TAG, `Sent control_response (deny) for ExitPlanMode, request_id=${denyRequestId}, had_pending=${!!pending}`);
+
+      if (pending) {
+        sessionManager.clearPendingPlanApproval(sessionId);
+      }
+
+      // 2. Switch back to plan mode
       sessionManager.updatePermissionMode(sessionId, "plan");
       const controlResponse = {
         type: "control_response",
@@ -484,7 +594,7 @@ export function createWebApiRoutes(
       sessionManager.addMessage(sessionId, controlResponse);
       connectionManager.sendEventToWebClients(sessionId, controlResponse);
 
-      // Send EnterPlanMode prompt
+      // 3. Send EnterPlanMode prompt to CLI
       const planPrompt = {
         type: "user" as const,
         message: {
@@ -500,7 +610,7 @@ export function createWebApiRoutes(
       connectionManager.sendRawToCliSession(sessionId, planPrompt);
       connectionManager.sendEventToWebClients(sessionId, planPrompt);
 
-      // Send user feedback if provided
+      // 4. Send user feedback if provided
       if (feedback) {
         const feedbackMsg = {
           type: "user" as const,

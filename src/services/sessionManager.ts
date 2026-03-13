@@ -5,7 +5,7 @@ import { logger } from "../utils/logger";
 const TAG = "session";
 
 interface PendingPlanApproval {
-  toolUseId: string;
+  canUseToolRequestId: string;  // The request_id from CLI's can_use_tool control_request
   planFilePath?: string;
 }
 
@@ -103,7 +103,7 @@ export class SessionManager {
 
   setPendingPlanApproval(sessionId: string, data: PendingPlanApproval): void {
     this.pendingPlanApprovals.set(sessionId, data);
-    logger.info(TAG, `Set pending plan approval for session ${sessionId}, toolUseId=${data.toolUseId}`);
+    logger.info(TAG, `Set pending plan approval for session ${sessionId}, canUseToolRequestId=${data.canUseToolRequestId}`);
   }
 
   getPendingPlanApproval(sessionId: string): PendingPlanApproval | undefined {

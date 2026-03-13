@@ -15,7 +15,7 @@ interface PlanApprovalCardProps {
     action: 'approve' | 'reject',
     mode?: string,
     clearContext?: boolean,
-    planContent?: string,
+    planFilePath?: string,
     feedback?: string,
   ) => void;
 }
@@ -31,7 +31,7 @@ export function PlanApprovalCard({ event, isAlreadyAnswered, responseData, onPla
   }, [isAlreadyAnswered]);
 
   const requestId = event.request_id || event.request?.request_id || '';
-  const planContent = event.request?.plan_content;
+  const planFilePath = event.request?.plan_file_path;
 
   // Determine what was chosen from responseData
   const answeredMode = responseData?.mode as string | undefined;
@@ -39,7 +39,7 @@ export function PlanApprovalCard({ event, isAlreadyAnswered, responseData, onPla
   const handleApprove = (mode: string, clearContext: boolean) => {
     setAnswered(true);
     setSelectedAction(clearContext ? 'clear-auto' : mode === 'acceptEdits' ? 'auto' : 'manual');
-    onPlanApproval?.(requestId, 'approve', mode, clearContext, planContent);
+    onPlanApproval?.(requestId, 'approve', mode, clearContext, planFilePath);
   };
 
   const handleReject = () => {

@@ -2,13 +2,15 @@ import { Router } from "express";
 import type { EnvironmentManager } from "../services/environmentManager";
 import type { WorkDispatcher } from "../services/workDispatcher";
 import type { RegisterEnvironmentRequest } from "../types";
+import { config } from "../config";
 import { logger } from "../utils/logger";
 
 const TAG = "route:env";
 
 export function createEnvironmentRoutes(
   envManager: EnvironmentManager,
-  workDispatcher: WorkDispatcher
+  workDispatcher: WorkDispatcher,
+  sessionManager?: import("../services/sessionManager").SessionManager
 ): Router {
   const router = Router();
 
@@ -82,6 +84,51 @@ export function createEnvironmentRoutes(
     } else {
       res.status(404).json({ error: "Environment not found" });
     }
+  });
+
+  // POST /v1/environments/:envId/work/:workId/heartbeat — Work heartbeat
+  router.post("/v1/environments/:envId/work/:workId/heartbeat", (req, res) => {
+    const { envId, workId } = req.params;
+    const env = envManager.get(envId);
+    if (!env) {
+      res.status(404).json({ error: "Environment not found" });
+      return;
+    }
+
+    logger.debug(TAG, `POST /v1/environments/${envId}/work/${workId}/heartbeat -> 200`);
+    res.status(200).json({ lease_extended: true, state: "active" });
+  });
+
+  // POST /v1/environments/:envId/bridge/reconnect — Reconnect to existing session
+  router.post("/v1/environments/:envId/bridge/reconnect", (req, res) => {
+    const { envId } = req.params;
+    const { session_id } = req.body;
+
+    const env = envManager.get(envId);
+    if (!env) {
+      res.status(404).json({ error: "Environment not found" });
+      return;
+    }
+
+    if (!session_id) {
+      res.status(400).json({ error: "session_id is required" });
+      return;
+    }
+
+    if (sessionManager) {
+      const session = sessionManager.get(session_id);
+      if (!session) {
+        res.status(404).json({ error: "Session not found" });
+        return;
+      }
+
+      // Re-dispatch work for this session
+      const apiBaseUrl = `http://localhost:${config.port}`;
+      workDispatcher.enqueueWork(envId, session_id, apiBaseUrl);
+    }
+
+    logger.info(TAG, `POST /v1/environments/${envId}/bridge/reconnect -> 200 (session: ${session_id})`);
+    res.status(200).json({});
   });
 
   return router;

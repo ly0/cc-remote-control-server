@@ -115,108 +115,15 @@ function handleCliWebSocket(sessionId: string, ws: WebSocket) {
         return;
       }
 
-      // Auto-respond to can_use_tool based on permissionMode
-      if (parsed.type === "control_request" && parsed.request?.subtype === "can_use_tool") {
-        const session = ctx.sessionManager.get(sessionId);
-        const mode = session?.permissionMode || "default";
+      // Process event through shared EventProcessor (plan mode, auto-approval, etc.)
+      const intercepted = ctx.eventProcessor.processCliEvent(sessionId, parsed);
 
-        let autoAllow = false;
-        if (mode === "bypassPermissions") {
-          autoAllow = true;
-        } else if (mode === "acceptEdits") {
-          const editTools = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
-          if (editTools.has(parsed.request?.tool_name)) {
-            autoAllow = true;
-          }
-        }
-
-        // Always auto-approve plan mode toggle tools (no side effects, safe to allow)
-        const planModeTools = new Set(["ExitPlanMode", "EnterPlanMode"]);
-        if (planModeTools.has(parsed.request?.tool_name)) {
-          autoAllow = true;
-        }
-
-        if (autoAllow) {
-          const autoResponse = {
-            type: "control_response",
-            response: {
-              subtype: "success",
-              request_id: parsed.request_id,
-              response: { behavior: "allow" },
-            },
-            session_id: sessionId,
-          };
-          ctx.connectionManager.sendRawToCliSession(sessionId, autoResponse);
-
-          // Still store and forward to web for visibility
-          const message = { ...parsed, timestamp: Date.now() };
-          ctx.sessionManager.addMessage(sessionId, message);
-          ctx.connectionManager.sendEventToWebClients(sessionId, message);
-          return;
-        }
+      if (!intercepted) {
+        // Store and forward to web clients
+        const message = { ...parsed, timestamp: Date.now() };
+        ctx.sessionManager.addMessage(sessionId, message);
+        ctx.connectionManager.sendEventToWebClients(sessionId, message);
       }
-
-      // Extract permissionMode from system/init and system/status events
-      if (parsed.type === "system" && (parsed.subtype === "init" || parsed.subtype === "status") && parsed.permissionMode) {
-        ctx.sessionManager.updatePermissionMode(sessionId, parsed.permissionMode);
-      }
-
-      // Detect ExitPlanMode tool_use in assistant messages
-      if (parsed.type === 'assistant' && Array.isArray(parsed.message?.content)) {
-        const exitPlanBlock = parsed.message.content.find(
-          (b: any) => b.type === 'tool_use' && b.name === 'ExitPlanMode'
-        );
-        if (exitPlanBlock) {
-          ctx.sessionManager.setPendingPlanApproval(sessionId, {
-            toolUseId: exitPlanBlock.id,
-            planFilePath: exitPlanBlock.input?.planFilePath,
-          });
-        }
-      }
-
-      // Detect ExitPlanMode tool_result and emit plan_approval control_request
-      if (parsed.type === 'result' || (parsed.type === 'user' && Array.isArray(parsed.message?.content))) {
-        const pending = ctx.sessionManager.getPendingPlanApproval(sessionId);
-        if (pending) {
-          const contentArr = Array.isArray(parsed.message?.content) ? parsed.message.content : [];
-          const resultBlock = contentArr.find(
-            (b: any) => b.tool_use_id === pending.toolUseId
-          );
-
-          if (resultBlock) {
-            let planContent: string | undefined;
-            try {
-              const raw = resultBlock.content;
-              const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
-              planContent = obj?.plan;
-            } catch {
-              // plan content extraction failed, leave undefined
-            }
-
-            const approvalRequestId = `plan-approval-${Date.now()}`;
-            const approvalEvent = {
-              type: 'control_request',
-              request: {
-                subtype: 'plan_approval',
-                request_id: approvalRequestId,
-                plan_content: planContent,
-                plan_file_path: pending.planFilePath,
-              },
-              request_id: approvalRequestId,
-              session_id: sessionId,
-              timestamp: Date.now(),
-            };
-            ctx.sessionManager.addMessage(sessionId, approvalEvent);
-            ctx.connectionManager.sendEventToWebClients(sessionId, approvalEvent);
-            ctx.sessionManager.clearPendingPlanApproval(sessionId);
-          }
-        }
-      }
-
-      // Store and forward to web clients
-      const message = { ...parsed, timestamp: Date.now() };
-      ctx.sessionManager.addMessage(sessionId, message);
-      ctx.connectionManager.sendEventToWebClients(sessionId, message);
     } catch (err) {
       logger.error(TAG, `Error parsing CLI WebSocket message: ${err}`);
     }

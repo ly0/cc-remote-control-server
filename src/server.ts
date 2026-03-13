@@ -6,10 +6,12 @@ import { EnvironmentManager } from "./services/environmentManager";
 import { SessionManager } from "./services/sessionManager";
 import { WorkDispatcher } from "./services/workDispatcher";
 import { ConnectionManager } from "./services/connectionManager";
+import { EventProcessor } from "./services/eventProcessor";
 
 import { createEnvironmentRoutes } from "./routes/environments";
 import { createSessionRoutes } from "./routes/sessions";
 import { createIngressRoutes } from "./routes/ingress";
+import { createCcrV2Routes } from "./routes/ccrV2";
 import { createWebApiRoutes } from "./routes/webApi";
 
 export interface AppContext {
@@ -17,6 +19,7 @@ export interface AppContext {
   sessionManager: SessionManager;
   workDispatcher: WorkDispatcher;
   connectionManager: ConnectionManager;
+  eventProcessor: EventProcessor;
 }
 
 export function createApp(): { app: express.Application; ctx: AppContext } {
@@ -27,12 +30,14 @@ export function createApp(): { app: express.Application; ctx: AppContext } {
   const sessionManager = new SessionManager();
   const workDispatcher = new WorkDispatcher();
   const connectionManager = new ConnectionManager();
+  const eventProcessor = new EventProcessor(sessionManager, connectionManager);
 
   const ctx: AppContext = {
     envManager,
     sessionManager,
     workDispatcher,
     connectionManager,
+    eventProcessor,
   };
 
   // Middleware
@@ -48,9 +53,10 @@ export function createApp(): { app: express.Application; ctx: AppContext } {
   });
 
   // API routes (CLI protocol)
-  app.use(createEnvironmentRoutes(envManager, workDispatcher));
-  app.use(createSessionRoutes(sessionManager, workDispatcher));
-  app.use(createIngressRoutes(sessionManager, connectionManager));
+  app.use(createEnvironmentRoutes(envManager, workDispatcher, sessionManager));
+  app.use(createSessionRoutes(sessionManager, workDispatcher, connectionManager));
+  app.use(createIngressRoutes(sessionManager, connectionManager, eventProcessor));
+  app.use(createCcrV2Routes(sessionManager, connectionManager));
 
   // Web API routes
   app.use(

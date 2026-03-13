@@ -81,7 +81,11 @@ function patchStep(name, src, pattern, replacement, { min = 1, max = Infinity, c
       `${name}: 预期替换 ${min === max ? min : `${min}-${max}`} 次，实际 ${count} 次`
     );
   }
-  console.log(`  ✓ ${name}: 替换 ${count} 次`);
+  if (count === 0) {
+    console.log(`  ⚠ ${name}: 无需替换（已为目标状态）`);
+  } else {
+    console.log(`  ✓ ${name}: 替换 ${count} 次`);
+  }
   return result;
 }
 
@@ -243,7 +247,7 @@ async function main() {
       src,
       /skipSlashCommands:\s*!0/g,
       "skipSlashCommands:!1",
-      { min: 1 }
+      { min: 0 }
     );
 
     // =====================================================================
@@ -316,7 +320,7 @@ async function main() {
 
     // --- Step 9: 锚点 2+3 — setAppState wrapper (headless/ITz scope) ---
     const wrapperRe =
-      /(\w+)\s*=\s*\((\w+)\)\s*=>\s*\{\s*(\w+)\s*\(\s*\((\w+)\)\s*=>\s*\{\s*let\s+(\w+)\s*=\s*\2\s*\(\s*\4\s*\)\s*,\s*(\w+)\s*=\s*\4\s*\.toolPermissionContext\.mode\s*,\s*(\w+)\s*=\s*\5\s*\.toolPermissionContext\.mode/;
+      /([\w$]+)\s*=\s*\(([\w$]+)\)\s*=>\s*\{\s*([\w$]+)\s*\(\s*\(([\w$]+)\)\s*=>\s*\{\s*let\s+([\w$]+)\s*=\s*\2\s*\(\s*\4\s*\)\s*,\s*([\w$]+)\s*=\s*\4\s*\.toolPermissionContext\.mode\s*,\s*([\w$]+)\s*=\s*\5\s*\.toolPermissionContext\.mode/;
     const wrapperMatch = src.match(wrapperRe);
     if (!wrapperMatch) {
       throw new Error("Step 9: 锚点未找到 — 无法定位 setAppState wrapper");
@@ -350,36 +354,39 @@ async function main() {
       tryIdx = permRespAbsIdx - 2000 + lastTry + 4;
     }
 
-    // --- Step 10: 锚点 4 — React 组件 scope ---
+    // --- Step 10: 锚点 4 — React 组件 scope (可选) ---
+    let patch1bIdx = -1;
+    let REACT_SET_STATE = null;
     const thinkingRe =
-      /onSetMaxThinkingTokens\s*\(\s*\w+\s*\)\s*\{\s*let\s+\w+\s*=\s*\w+\s*!==\s*null\s*;\s*(\w+)\s*\(/;
+      /onSetMaxThinkingTokens\s*\(\s*([\w$]+)\s*\)\s*\{\s*let\s+[\w$]+\s*=\s*[\w$]+\s*!==\s*null\s*;\s*([\w$]+)\s*\(/;
     const thinkingMatch = src.match(thinkingRe);
     if (!thinkingMatch) {
-      throw new Error("Step 10: 锚点未找到 — 无法定位 React 组件 scope");
-    }
-    const REACT_SET_STATE = thinkingMatch[1];
-    console.log(`  Step 10 锚点: REACT_SET_STATE=${REACT_SET_STATE}`);
+      console.log("  ⚠ Step 10: 锚点未找到，跳过 React scope 覆盖（Step 9 已提供 __rcSetPermMode）");
+    } else {
+      REACT_SET_STATE = thinkingMatch[2];
+      console.log(`  Step 10 锚点: REACT_SET_STATE=${REACT_SET_STATE}`);
 
-    const afterThinking = src.substring(thinkingMatch.index);
-    const rcInitFailStr = "Remote Control initialization failed";
-    const rcInitFailIdx = afterThinking.indexOf(rcInitFailStr);
-    if (rcInitFailIdx < 0) {
-      throw new Error("Step 10: 无法在 React scope 中找到 bridge 初始化错误文本");
+      const afterThinking = src.substring(thinkingMatch.index);
+      const rcInitFailStr = "Remote Control initialization failed";
+      const rcInitFailIdx = afterThinking.indexOf(rcInitFailStr);
+      if (rcInitFailIdx < 0) {
+        console.log("  ⚠ Step 10: 无法在 React scope 中找到 bridge 初始化错误文本，跳过");
+      } else {
+        const searchArea = afterThinking.substring(rcInitFailIdx, rcInitFailIdx + 2000);
+        const postInitMatch = searchArea.match(
+          /return\s*\}\s*([\w$]+\.current\s*=\s*[\w$]+\s*,\s*[\w$]+\.current\s*=\s*[\w$]+\s*;)/
+        );
+        if (!postInitMatch) {
+          console.log("  ⚠ Step 10: 无法定位 bridge 初始化成功后的插入点，跳过");
+        } else {
+          patch1bIdx =
+            thinkingMatch.index +
+            rcInitFailIdx +
+            postInitMatch.index +
+            postInitMatch[0].length;
+        }
+      }
     }
-
-    const searchArea = afterThinking.substring(rcInitFailIdx, rcInitFailIdx + 2000);
-    const postInitMatch = searchArea.match(
-      /return\s*\}\s*(\w+\.current\s*=\s*\w+\s*,\s*\w+\.current\s*=\s*\w+\s*;)/
-    );
-    if (!postInitMatch) {
-      throw new Error("Step 10: 无法定位 bridge 初始化成功后的插入点");
-    }
-
-    const patch1bIdx =
-      thinkingMatch.index +
-      rcInitFailIdx +
-      postInitMatch.index +
-      postInitMatch[0].length;
 
     // --- 构建 Patch 代码 ---
     const isMinified = !src
@@ -394,22 +401,24 @@ async function main() {
       patch1a = `\n                            globalThis.__rcSetPermMode = (m) => { ${WRAPPER}((s) => ({ ...s, toolPermissionContext: { ...s.toolPermissionContext, mode: m } })) };\n`;
     }
 
-    // Patch 1b: React 组件 scope 注册 __rcSetPermMode (覆盖 1a)
-    let patch1b;
-    if (isMinified) {
-      patch1b =
-        `globalThis.__rcSetPermMode=(m)=>{${REACT_SET_STATE}((s)=>{` +
-        `if(s.toolPermissionContext.mode===m)return s;` +
-        `return{...s,toolPermissionContext:{...s.toolPermissionContext,mode:m}}` +
-        `})};`;
-    } else {
-      patch1b =
-        `\n                    globalThis.__rcSetPermMode = (m) => {` +
-        ` ${REACT_SET_STATE}((s) => {` +
-        ` if (s.toolPermissionContext.mode === m) return s;` +
-        ` return { ...s, toolPermissionContext: { ...s.toolPermissionContext, mode: m } }` +
-        ` })` +
-        ` };\n`;
+    // Patch 1b: React 组件 scope 注册 __rcSetPermMode (覆盖 1a) — 可选
+    let patch1b = null;
+    if (patch1bIdx >= 0 && REACT_SET_STATE) {
+      if (isMinified) {
+        patch1b =
+          `globalThis.__rcSetPermMode=(m)=>{${REACT_SET_STATE}((s)=>{` +
+          `if(s.toolPermissionContext.mode===m)return s;` +
+          `return{...s,toolPermissionContext:{...s.toolPermissionContext,mode:m}}` +
+          `})};`;
+      } else {
+        patch1b =
+          `\n                    globalThis.__rcSetPermMode = (m) => {` +
+          ` ${REACT_SET_STATE}((s) => {` +
+          ` if (s.toolPermissionContext.mode === m) return s;` +
+          ` return { ...s, toolPermissionContext: { ...s.toolPermissionContext, mode: m } }` +
+          ` })` +
+          ` };\n`;
+      }
     }
 
     // Patch 2: switch case + system.status 事件广播
@@ -446,13 +455,81 @@ async function main() {
     // --- 应用 AST 级插入 (从后向前，避免偏移量变化) ---
     const insertions = [
       { pos: tryIdx, code: patch1a, label: "Step 9: __rcSetPermMode (headless)" },
-      { pos: patch1bIdx, code: patch1b, label: "Step 10: __rcSetPermMode (React)" },
+      ...(patch1b && patch1bIdx >= 0
+        ? [{ pos: patch1bIdx, code: patch1b, label: "Step 10: __rcSetPermMode (React)" }]
+        : []),
       { pos: insertAfterBreak, code: patch2, label: "Step 8: switch case" },
     ].sort((a, b) => b.pos - a.pos);
 
     for (const ins of insertions) {
       console.log(`  ✓ ${ins.label}: 插入 @ 位置 ${ins.pos}`);
       src = src.substring(0, ins.pos) + ins.code + src.substring(ins.pos);
+    }
+
+    // =====================================================================
+    // Steps 11-12: Plan Approval — control_response fallback
+    // =====================================================================
+
+    // Step 11: whq global registration (Patch A)
+    // 在 whq 的 pushToQueue 调用时，将 ToolUseConfirmation 注册到 globalThis
+    // 使用 .pushToQueue({ 作为锚点（版本无关，不依赖 minified 变量名）
+    // 同时暴露 removeFromQueue 到注册对象，供 fallback 调用
+    {
+      const PUSH_ANCHOR = ".pushToQueue({";
+      const pushIdx = src.indexOf(PUSH_ANCHOR);
+      if (pushIdx < 0) throw new Error("Step 11: 锚点未找到 — .pushToQueue({");
+      if (src.indexOf(PUSH_ANCHOR, pushIdx + 1) >= 0)
+        throw new Error("Step 11: 锚点不唯一 — .pushToQueue({ 出现多次");
+
+      // Extract the caller variable (ctx object) before .pushToQueue(
+      // In minified code this is the variable right before the dot, e.g. "K.pushToQueue({..."
+      const beforePush = src.substring(Math.max(0, pushIdx - 200), pushIdx);
+      const callerMatch = beforePush.match(/(\w+)$/);
+      if (!callerMatch) throw new Error("Step 11: 无法提取 pushToQueue 调用对象变量名");
+      const CALLER = callerMatch[1];
+
+      src = src.substring(0, pushIdx)
+          + `.pushToQueue(globalThis.__rcActiveToolPerm={__removeFromQueue:${CALLER}.removeFromQueue.bind(${CALLER}),`
+          + src.substring(pushIdx + PUSH_ANCHOR.length);
+      console.log(`  ✓ Step 11: whq global registration (with removeFromQueue via ${CALLER}) @ 位置 ${pushIdx}`);
+    }
+
+    // Step 12: Z function fallback (Patch B)
+    // 当 Map G 无 handler 时，使用 globalThis.__rcActiveToolPerm 作为 fallback
+    {
+      const NO_HANDLER = '[bridge:repl] No handler for control_response request_id=';
+      const nhIdx = src.indexOf(NO_HANDLER);
+      if (nhIdx < 0) throw new Error("Step 12: 锚点未找到 — No handler log");
+
+      // 动态提取消息变量名（Z 函数参数）
+      // 从 log 模板中提取 request_id 变量: request_id=${S}
+      const reqIdMatch = src.substring(nhIdx, nhIdx + 200).match(/request_id=\$\{(\w+)\}/);
+      if (!reqIdMatch) throw new Error("Step 12: 无法提取 request_id 变量名");
+      const reqIdVar = reqIdMatch[1];
+
+      // 从 request_id 赋值语句中提取消息变量: let S = L.request_id 或 let S = L.response?.request_id
+      const zBefore = src.substring(nhIdx - 1000, nhIdx);
+      const msgVarMatch = zBefore.match(new RegExp(`let\\s+${reqIdVar}\\s*=\\s*(\\w+)\\.`));
+      if (!msgVarMatch) throw new Error("Step 12: 无法提取消息变量名");
+      const MSG = msgVarMatch[1];
+      console.log(`  Step 12 锚点: MSG=${MSG}, reqIdVar=${reqIdVar}`);
+
+      // 找到 return 语句
+      const returnAfterLog = src.indexOf("return", nhIdx + NO_HANDLER.length);
+      if (returnAfterLog < 0 || returnAfterLog > nhIdx + 200)
+        throw new Error("Step 12: 找不到 return");
+
+      const fallbackCode =
+        `let __p=globalThis.__rcActiveToolPerm;` +
+        `if(__p&&${MSG}.response?.response){` +
+        `let __r=${MSG}.response.response;` +
+        `globalThis.__rcActiveToolPerm=null;` +
+        `if(__p.__removeFromQueue){try{__p.__removeFromQueue()}catch(e){}}` +
+        `if(__r.behavior==="allow")__p.onAllow(__r.updatedInput,__r.updatedPermissions||[]);` +
+        `else if(__r.behavior==="deny")__p.onReject(__r.message);}`;
+
+      src = src.substring(0, returnAfterLog) + fallbackCode + src.substring(returnAfterLog);
+      console.log(`  ✓ Step 12: Z function fallback @ 位置 ${returnAfterLog}`);
     }
 
     // =====================================================================
@@ -476,13 +553,19 @@ async function main() {
     const rcCount = (patched.match(/__rcSetPermMode/g) || []).length;
     const modeCount = (patched.match(/set_permission_mode/g) || []).length;
     const slashCmdCount = (patched.match(/skipSlashCommands:!1/g) || []).length;
+    const toolPermCount = (patched.match(/__rcActiveToolPerm/g) || []).length;
     console.log(`\n验证结果:`);
-    console.log(`  __rcSetPermMode 出现次数: ${rcCount} (预期 ≥ 4)`);
+    const expectedMinRc = patch1b ? 4 : 3;
+    console.log(`  __rcSetPermMode 出现次数: ${rcCount} (预期 ≥ ${expectedMinRc})`);
     console.log(`  set_permission_mode 出现次数: ${modeCount}`);
     console.log(`  skipSlashCommands:!1 出现次数: ${slashCmdCount}`);
+    console.log(`  __rcActiveToolPerm 出现次数: ${toolPermCount} (预期 ≥ 3)`);
 
-    if (rcCount < 4) {
+    if (rcCount < expectedMinRc) {
       console.warn("警告: __rcSetPermMode 出现次数少于预期");
+    }
+    if (toolPermCount < 3) {
+      console.warn("警告: __rcActiveToolPerm 出现次数少于预期 (需要 Step 11 赋值 + Step 12 读取/清除)");
     }
 
     console.log("\nPatch 完成!");
